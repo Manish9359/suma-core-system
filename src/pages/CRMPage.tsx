@@ -1,23 +1,12 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Plus, Search, Filter, Phone, Mail, Building2, ArrowRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-
-const leads = [
-  { id: 1, name: "Rajesh Kumar", company: "SecureHome Pvt Ltd", phone: "+91 98765 43210", email: "rajesh@securehome.in", source: "Website", status: "New" },
-  { id: 2, name: "Priya Sharma", company: "TechGuard Systems", phone: "+91 87654 32109", email: "priya@techguard.co", source: "Referral", status: "Contacted" },
-  { id: 3, name: "Amit Patel", company: "SafeCity Solutions", phone: "+91 76543 21098", email: "amit@safecity.in", source: "Exhibition", status: "Qualified" },
-  { id: 4, name: "Sunita Reddy", company: "WatchTower Corp", phone: "+91 65432 10987", email: "sunita@watchtower.com", source: "Cold Call", status: "Proposal" },
-  { id: 5, name: "Vikram Singh", company: "EagleEye Securities", phone: "+91 54321 09876", email: "vikram@eagleeye.in", source: "Website", status: "New" },
-];
-
-const customers = [
-  { id: "CUST-001", company: "Tech Solutions Ltd", contact: "Arun Mehta", gst: "27AABCT1234F1ZV" },
-  { id: "CUST-002", company: "City Mall Management", contact: "Deepa Nair", gst: "27AABCM5678G2ZP" },
-  { id: "CUST-003", company: "Green Valley School", contact: "Suresh Iyer", gst: "27AABCG9012H3ZQ" },
-];
+import { crmApi } from "@/lib/api";
+import { useApiQuery } from "@/hooks/useApiQuery";
+import { LoadingState, ErrorState, EmptyState } from "@/components/LoadingState";
 
 const statusColors: Record<string, string> = {
   New: "status-badge status-open",
@@ -28,6 +17,8 @@ const statusColors: Record<string, string> = {
 
 export default function CRMPage() {
   const [tab, setTab] = useState<"leads" | "customers">("leads");
+  const { data: leads, isLoading: leadsLoading, error: leadsError, refetch: refetchLeads } = useApiQuery(["crm", "leads"], crmApi.getLeads);
+  const { data: customers, isLoading: customersLoading, error: customersError, refetch: refetchCustomers } = useApiQuery(["crm", "customers"], crmApi.getCustomers);
 
   return (
     <div className="module-page">
@@ -36,18 +27,18 @@ export default function CRMPage() {
           <h1 className="page-title">CRM</h1>
           <p className="text-sm text-muted-foreground">Manage leads and customer relationships</p>
         </div>
-        <Button className="gap-2">
+        <Button className="gap-2 bg-gradient-to-r from-accent to-accent/80 hover:from-accent/90 hover:to-accent/70 shadow-lg shadow-accent/20">
           <Plus className="h-4 w-4" />
           {tab === "leads" ? "Add Lead" : "Add Customer"}
         </Button>
       </div>
 
-      <div className="flex gap-2 border-b">
-        <button onClick={() => setTab("leads")} className={`pb-2 px-4 text-sm font-medium border-b-2 transition-colors ${tab === "leads" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
-          Leads ({leads.length})
+      <div className="flex gap-1 border-b">
+        <button onClick={() => setTab("leads")} className={`pb-2.5 px-5 text-sm font-medium border-b-2 transition-all ${tab === "leads" ? "border-accent text-accent" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+          Leads ({leads?.length || 0})
         </button>
-        <button onClick={() => setTab("customers")} className={`pb-2 px-4 text-sm font-medium border-b-2 transition-colors ${tab === "customers" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
-          Customers ({customers.length})
+        <button onClick={() => setTab("customers")} className={`pb-2.5 px-5 text-sm font-medium border-b-2 transition-all ${tab === "customers" ? "border-accent text-accent" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
+          Customers ({customers?.length || 0})
         </button>
       </div>
 
@@ -62,17 +53,20 @@ export default function CRMPage() {
       </div>
 
       {tab === "leads" ? (
-        <Card>
+        leadsLoading ? <LoadingState message="Loading leads..." /> :
+        leadsError ? <ErrorState message="Failed to load leads" onRetry={refetchLeads} /> :
+        !leads || leads.length === 0 ? <EmptyState title="No leads yet" description="Add your first lead to get started" /> : (
+        <Card className="border-none shadow-md overflow-hidden">
           <CardContent className="p-0">
             <table className="data-table">
-              <thead>
+              <thead className="bg-muted/50">
                 <tr>
                   <th>Name</th><th>Company</th><th>Contact</th><th>Source</th><th>Status</th><th>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {leads.map((l) => (
-                  <tr key={l.id} className="hover:bg-muted/30">
+                  <tr key={l.id} className="hover:bg-accent/5 transition-colors">
                     <td className="font-medium">{l.name}</td>
                     <td><div className="flex items-center gap-1.5"><Building2 className="h-3.5 w-3.5 text-muted-foreground" />{l.company}</div></td>
                     <td>
@@ -83,23 +77,27 @@ export default function CRMPage() {
                     </td>
                     <td><Badge variant="secondary">{l.source}</Badge></td>
                     <td><span className={statusColors[l.status] || "status-badge"}>{l.status}</span></td>
-                    <td><Button variant="ghost" size="sm" className="gap-1 text-xs">Convert <ArrowRight className="h-3 w-3" /></Button></td>
+                    <td><Button variant="ghost" size="sm" className="gap-1 text-xs text-accent hover:text-accent">Convert <ArrowRight className="h-3 w-3" /></Button></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </CardContent>
         </Card>
+        )
       ) : (
-        <Card>
+        customersLoading ? <LoadingState message="Loading customers..." /> :
+        customersError ? <ErrorState message="Failed to load customers" onRetry={refetchCustomers} /> :
+        !customers || customers.length === 0 ? <EmptyState title="No customers yet" description="Convert leads or add customers directly" /> : (
+        <Card className="border-none shadow-md overflow-hidden">
           <CardContent className="p-0">
             <table className="data-table">
-              <thead>
+              <thead className="bg-muted/50">
                 <tr><th>Customer ID</th><th>Company</th><th>Contact Person</th><th>GST Number</th></tr>
               </thead>
               <tbody>
                 {customers.map((c) => (
-                  <tr key={c.id} className="hover:bg-muted/30">
+                  <tr key={c.id} className="hover:bg-accent/5 transition-colors">
                     <td className="font-mono text-xs">{c.id}</td>
                     <td className="font-medium">{c.company}</td>
                     <td>{c.contact}</td>
@@ -110,6 +108,7 @@ export default function CRMPage() {
             </table>
           </CardContent>
         </Card>
+        )
       )}
     </div>
   );

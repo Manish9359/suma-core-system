@@ -2,15 +2,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Plus, Search, Filter } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-
-const tickets = [
-  { id: "TKT-156", client: "Tech Solutions Ltd", issue: "DVR not recording", priority: "High", technician: "Rahul Verma", status: "Resolved" },
-  { id: "TKT-155", client: "City Mall Management", issue: "Camera offline - Zone B", priority: "Critical", technician: "Sunil Yadav", status: "In Progress" },
-  { id: "TKT-154", client: "Green Valley School", issue: "Night vision issue", priority: "Medium", technician: "Rahul Verma", status: "Assigned" },
-  { id: "TKT-153", client: "SafeCity Solutions", issue: "Network switch failure", priority: "High", technician: "—", status: "Open" },
-  { id: "TKT-152", client: "EagleEye Securities", issue: "Motion detection sensitivity", priority: "Low", technician: "Sunil Yadav", status: "Closed" },
-];
+import { serviceApi } from "@/lib/api";
+import { useApiQuery } from "@/hooks/useApiQuery";
+import { LoadingState, ErrorState, EmptyState } from "@/components/LoadingState";
 
 const priorityColors: Record<string, string> = {
   Critical: "bg-destructive/10 text-destructive",
@@ -28,6 +22,12 @@ const statusColors: Record<string, string> = {
 };
 
 export default function ServicePage() {
+  const { data: tickets, isLoading, error, refetch } = useApiQuery(["service", "tickets"], serviceApi.getTickets);
+  const { data: summary } = useApiQuery(["service", "summary"], serviceApi.getSummary);
+
+  if (isLoading) return <div className="module-page"><LoadingState message="Loading tickets..." /></div>;
+  if (error) return <div className="module-page"><ErrorState message="Failed to load service tickets" onRetry={refetch} /></div>;
+
   return (
     <div className="module-page">
       <div className="page-header">
@@ -35,14 +35,14 @@ export default function ServicePage() {
           <h1 className="page-title">Service Tickets</h1>
           <p className="text-sm text-muted-foreground">Track and manage customer support issues</p>
         </div>
-        <Button className="gap-2"><Plus className="h-4 w-4" />New Ticket</Button>
+        <Button className="gap-2 bg-gradient-to-r from-accent to-accent/80 shadow-lg shadow-accent/20"><Plus className="h-4 w-4" />New Ticket</Button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="kpi-card"><p className="text-xs text-muted-foreground">Open</p><p className="text-xl font-bold mt-1 text-info">1</p></div>
-        <div className="kpi-card"><p className="text-xs text-muted-foreground">In Progress</p><p className="text-xl font-bold mt-1 text-warning">2</p></div>
-        <div className="kpi-card"><p className="text-xs text-muted-foreground">Resolved</p><p className="text-xl font-bold mt-1 text-success">1</p></div>
-        <div className="kpi-card"><p className="text-xs text-muted-foreground">Closed</p><p className="text-xl font-bold mt-1 text-muted-foreground">1</p></div>
+        <div className="kpi-card bg-gradient-to-br from-blue-500/10 to-transparent border-none shadow-sm"><p className="text-xs text-muted-foreground font-medium">Open</p><p className="text-2xl font-extrabold mt-1 text-info">{summary?.open || 0}</p></div>
+        <div className="kpi-card bg-gradient-to-br from-amber-500/10 to-transparent border-none shadow-sm"><p className="text-xs text-muted-foreground font-medium">In Progress</p><p className="text-2xl font-extrabold mt-1 text-warning">{summary?.in_progress || 0}</p></div>
+        <div className="kpi-card bg-gradient-to-br from-emerald-500/10 to-transparent border-none shadow-sm"><p className="text-xs text-muted-foreground font-medium">Resolved</p><p className="text-2xl font-extrabold mt-1 text-success">{summary?.resolved || 0}</p></div>
+        <div className="kpi-card bg-gradient-to-br from-gray-500/10 to-transparent border-none shadow-sm"><p className="text-xs text-muted-foreground font-medium">Closed</p><p className="text-2xl font-extrabold mt-1 text-muted-foreground">{summary?.closed || 0}</p></div>
       </div>
 
       <div className="flex items-center gap-3">
@@ -53,13 +53,14 @@ export default function ServicePage() {
         <Button variant="outline" size="sm" className="gap-1.5"><Filter className="h-3.5 w-3.5" />Filter</Button>
       </div>
 
-      <Card>
+      {!tickets || tickets.length === 0 ? <EmptyState title="No tickets yet" /> : (
+      <Card className="border-none shadow-md overflow-hidden">
         <CardContent className="p-0">
           <table className="data-table">
-            <thead><tr><th>Ticket #</th><th>Client</th><th>Issue</th><th>Priority</th><th>Technician</th><th>Status</th></tr></thead>
+            <thead className="bg-muted/50"><tr><th>Ticket #</th><th>Client</th><th>Issue</th><th>Priority</th><th>Technician</th><th>Status</th></tr></thead>
             <tbody>
               {tickets.map((t) => (
-                <tr key={t.id} className="hover:bg-muted/30">
+                <tr key={t.id} className="hover:bg-accent/5 transition-colors">
                   <td className="font-mono text-xs font-medium">{t.id}</td>
                   <td>{t.client}</td>
                   <td className="font-medium">{t.issue}</td>
@@ -72,6 +73,7 @@ export default function ServicePage() {
           </table>
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }

@@ -1,14 +1,9 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Plus, AlertCircle } from "lucide-react";
-
-const contracts = [
-  { id: "AMC-001", client: "Tech Solutions Ltd", equipment: "16 Cameras, 2 NVR", start: "2024-01-01", end: "2024-12-31", visits: "4/4", status: "Active" },
-  { id: "AMC-002", client: "City Mall Management", equipment: "48 Cameras, 6 NVR, 4 Switches", start: "2024-03-15", end: "2025-03-14", visits: "2/4", status: "Active" },
-  { id: "AMC-003", client: "Green Valley School", equipment: "12 Cameras, 1 DVR", start: "2024-02-01", end: "2025-01-31", visits: "3/4", status: "Active" },
-  { id: "AMC-004", client: "SafeCity Solutions", equipment: "24 Cameras, 3 NVR", start: "2023-06-01", end: "2024-05-31", visits: "4/4", status: "Expired" },
-  { id: "AMC-005", client: "WatchTower Corp", equipment: "8 Cameras, 1 NVR", start: "2024-07-01", end: "2025-06-30", visits: "0/4", status: "Due for Renewal" },
-];
+import { amcApi } from "@/lib/api";
+import { useApiQuery } from "@/hooks/useApiQuery";
+import { LoadingState, ErrorState, EmptyState } from "@/components/LoadingState";
 
 const statusMap: Record<string, string> = {
   Active: "status-badge status-active",
@@ -17,6 +12,12 @@ const statusMap: Record<string, string> = {
 };
 
 export default function AMCPage() {
+  const { data: contracts, isLoading, error, refetch } = useApiQuery(["amc", "contracts"], amcApi.getContracts);
+  const { data: summary } = useApiQuery(["amc", "summary"], amcApi.getSummary);
+
+  if (isLoading) return <div className="module-page"><LoadingState message="Loading contracts..." /></div>;
+  if (error) return <div className="module-page"><ErrorState message="Failed to load AMC data" onRetry={refetch} /></div>;
+
   return (
     <div className="module-page">
       <div className="page-header">
@@ -24,22 +25,23 @@ export default function AMCPage() {
           <h1 className="page-title">AMC Management</h1>
           <p className="text-sm text-muted-foreground">Annual maintenance contracts and service schedules</p>
         </div>
-        <Button className="gap-2"><Plus className="h-4 w-4" />New Contract</Button>
+        <Button className="gap-2 bg-gradient-to-r from-accent to-accent/80 shadow-lg shadow-accent/20"><Plus className="h-4 w-4" />New Contract</Button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="kpi-card"><p className="text-xs text-muted-foreground">Active Contracts</p><p className="text-xl font-bold mt-1 text-success">3</p></div>
-        <div className="kpi-card border-warning/30"><div className="flex items-center gap-1.5"><AlertCircle className="h-4 w-4 text-warning" /><p className="text-xs text-warning font-medium">Renewal Due</p></div><p className="text-xl font-bold mt-1 text-warning">1</p></div>
-        <div className="kpi-card"><p className="text-xs text-muted-foreground">Expired</p><p className="text-xl font-bold mt-1 text-destructive">1</p></div>
+        <div className="kpi-card bg-gradient-to-br from-emerald-500/10 to-transparent border-none shadow-sm"><p className="text-xs text-muted-foreground font-medium">Active Contracts</p><p className="text-2xl font-extrabold mt-1 text-success">{summary?.active || 0}</p></div>
+        <div className="kpi-card bg-gradient-to-br from-amber-500/10 to-transparent border-none shadow-sm"><div className="flex items-center gap-1.5"><AlertCircle className="h-4 w-4 text-warning" /><p className="text-xs text-warning font-medium">Renewal Due</p></div><p className="text-2xl font-extrabold mt-1 text-warning">{summary?.renewal_due || 0}</p></div>
+        <div className="kpi-card bg-gradient-to-br from-red-500/10 to-transparent border-none shadow-sm"><p className="text-xs text-muted-foreground font-medium">Expired</p><p className="text-2xl font-extrabold mt-1 text-destructive">{summary?.expired || 0}</p></div>
       </div>
 
-      <Card>
+      {!contracts || contracts.length === 0 ? <EmptyState title="No contracts yet" /> : (
+      <Card className="border-none shadow-md overflow-hidden">
         <CardContent className="p-0">
           <table className="data-table">
-            <thead><tr><th>AMC #</th><th>Client</th><th>Equipment</th><th>Period</th><th>Visits</th><th>Status</th></tr></thead>
+            <thead className="bg-muted/50"><tr><th>AMC #</th><th>Client</th><th>Equipment</th><th>Period</th><th>Visits</th><th>Status</th></tr></thead>
             <tbody>
               {contracts.map((c) => (
-                <tr key={c.id} className="hover:bg-muted/30">
+                <tr key={c.id} className="hover:bg-accent/5 transition-colors">
                   <td className="font-mono text-xs font-medium">{c.id}</td>
                   <td className="font-medium">{c.client}</td>
                   <td className="text-sm">{c.equipment}</td>
@@ -52,6 +54,7 @@ export default function AMCPage() {
           </table>
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }
