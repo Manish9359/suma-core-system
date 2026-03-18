@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import create_engine, Column, Integer, String, Float, ForeignKey, DateTime
+from sqlalchemy import create_engine, Column, Integer, String, Float, ForeignKey, DateTime, func
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship, Session
 from pydantic import BaseModel, EmailStr
@@ -150,15 +150,7 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
     if not user or not verify_password(data.password, user.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = create_token(user)
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-        "user": {
-            "username": user.username,
-            "role": user.role,
-            "tenant_id": user.tenant_id
-        }
-    }
+    return {"access_token": token, "token_type": "bearer", "user": {"username": user.username, "role": user.role, "tenant_id": user.tenant_id}}
 
 # ---------- DASHBOARD ----------
 @app.get("/api/dashboard/kpis")
@@ -166,6 +158,27 @@ def dashboard_kpis(user: User = Depends(get_current_user), db: Session = Depends
     revenue = db.query(Invoice).filter(Invoice.tenant_id == user.tenant_id).count()
     customers = db.query(Customer).filter(Customer.tenant_id == user.tenant_id).count()
     return {"revenue": revenue, "customers": customers}
+
+@app.get("/api/dashboard/sales-chart")
+def dashboard_sales_chart(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    invoices = db.query(Invoice).filter(Invoice.tenant_id == user.tenant_id).order_by(Invoice.created_at.desc()).limit(5).all()
+    return [{"customer": inv.customer.name, "amount": inv.amount, "date": inv.created_at} for inv in invoices]
+
+@app.get("/api/dashboard/revenue-chart")
+def dashboard_revenue_chart(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    revenue_data = db.query(Customer.name, func.sum(Invoice.amount)).join(Invoice, Invoice.customer_id == Customer.id)\
+                    .filter(Customer.tenant_id == user.tenant_id).group_by(Customer.name).all()
+    return [{"customer": r[0], "revenue": r[1]} for r in revenue_data]
+
+@app.get("/api/dashboard/inventory-chart")
+def dashboard_inventory_chart(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    products = db.query(Product).filter(Product.tenant_id == user.tenant_id).all()
+    return [{"product": p.name, "quantity": p.quantity} for p in products]
+
+@app.get("/api/dashboard/recent-activity")
+def dashboard_recent_activity(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    recent_invoices = db.query(Invoice).filter(Invoice.tenant_id == user.tenant_id).order_by(Invoice.created_at.desc()).limit(5).all()
+    return [{"type": "invoice", "name": inv.customer.name, "amount": inv.amount, "date": inv.created_at} for inv in recent_invoices]
 
 # ---------- CRM ----------
 @app.get("/api/crm/customers")
@@ -182,6 +195,10 @@ def create_customer(data: CustomerCreate, user: User = Depends(get_current_user)
     db.commit()
     db.refresh(customer)
     return customer
+
+@app.get("/api/crm/leads")
+def get_crm_leads(user: User = Depends(get_current_user)):
+    return [{"lead": "Lead 1"}, {"lead": "Lead 2"}]
 
 # ---------- SALES ----------
 @app.get("/api/sales/invoices")
@@ -212,6 +229,26 @@ def create_product(data: ProductCreate, user: User = Depends(get_current_user), 
     db.refresh(product)
     return product
 
+@app.get("/api/inventory/summary")
+def inventory_summary(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    total_products = db.query(Product).filter(Product.tenant_id == user.tenant_id).count()
+    total_quantity = db.query(func.sum(Product.quantity)).filter(Product.tenant_id == user.tenant_id).scalar() or 0
+    return {"total_products": total_products, "total_quantity": total_quantity}
+
+# ---------- PURCHASING ----------
+@app.get("/api/purchasing/orders")
+def get_purchase_orders(user: User = Depends(get_current_user)):
+    return [{"order": "Order 1"}, {"order": "Order 2"}]
+
+# ---------- ACCOUNTING ----------
+@app.get("/api/accounting/accounts")
+def get_accounts(user: User = Depends(get_current_user)):
+    return [{"account": "Cash"}, {"account": "Bank"}]
+
+@app.get("/api/accounting/summary")
+def accounting_summary(user: User = Depends(get_current_user)):
+    return {"total_debits": 1000, "total_credits": 500}
+
 # ---------- HR ----------
 @app.get("/api/hr/employees")
 def get_employees(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -224,6 +261,25 @@ def create_employee(data: EmployeeCreate, user: User = Depends(get_current_user)
     db.commit()
     db.refresh(employee)
     return employee
+
+@app.get("/api/hr/summary")
+def hr_summary(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    total_employees = db.query(Employee).filter(Employee.tenant_id == user.tenant_id).count()
+    return {"total_employees": total_employees}
+
+# ---------- SERVICE ----------
+@app.get("/api/service/tickets")
+def get_service_tickets(user: User = Depends(get_current_user)):
+    return [{"ticket": "Ticket 1"}, {"ticket": "Ticket 2"}]
+
+@app.get("/api/service/summary")
+def service_summary(user: User = Depends(get_current_user)):
+    return {"open_tickets": 2, "closed_tickets": 0}
+
+# ---------- INSTALLATIONS ----------
+@app.get("/api/installations/projects")
+def installations_projects(user: User = Depends(get_current_user)):
+    return [{"project": "Project 1"}, {"project": "Project 2"}]
 
 # ---------- SEED FUNCTION ----------
 def seed():
@@ -246,16 +302,13 @@ def seed():
             db.add(admin_user)
             db.commit()
             db.refresh(admin_user)
-        # Optional: Seed some default products/customers/employees
+        # Seed default products/customers/employees
         if not db.query(Customer).filter(Customer.tenant_id == tenant.id).first():
-            c = Customer(name="Default Customer", tenant_id=tenant.id)
-            db.add(c)
+            db.add(Customer(name="Default Customer", tenant_id=tenant.id))
         if not db.query(Product).filter(Product.tenant_id == tenant.id).first():
-            p = Product(name="Default Product", quantity=100, tenant_id=tenant.id)
-            db.add(p)
+            db.add(Product(name="Default Product", quantity=100, tenant_id=tenant.id))
         if not db.query(Employee).filter(Employee.tenant_id == tenant.id).first():
-            e = Employee(name="Default Employee", tenant_id=tenant.id)
-            db.add(e)
+            db.add(Employee(name="Default Employee", tenant_id=tenant.id))
         db.commit()
         print(f"Seed complete: tenant={tenant.name}, admin={admin_user.username}")
     finally:
