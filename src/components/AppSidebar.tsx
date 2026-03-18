@@ -1,15 +1,17 @@
 import {
   LayoutDashboard, Users, ShoppingCart, Package, Truck,
   Calculator, UserCog, Headphones, Shield, Wrench,
-  BarChart3, Settings, Bell, Search, ChevronDown
+  BarChart3, Settings, LogOut
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent,
   SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem,
   SidebarHeader, SidebarFooter, useSidebar,
 } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
 
 const modules = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -29,6 +31,7 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const location = useLocation();
+  const { user, logout } = useAuth();
 
   return (
     <Sidebar collapsible="icon">
@@ -71,7 +74,7 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="p-3 border-t border-sidebar-border">
+      <SidebarFooter className="p-3 border-t border-sidebar-border space-y-2">
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild>
@@ -82,6 +85,23 @@ export function AppSidebar() {
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
+
+        {!collapsed && user && (
+          <div className="px-2 py-2 rounded-lg bg-sidebar-accent/30">
+            <p className="text-xs font-medium text-sidebar-accent-foreground truncate">{user.name}</p>
+            <p className="text-[10px] text-sidebar-foreground truncate">{user.role}</p>
+          </div>
+        )}
+
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={logout}
+          className="w-full justify-start text-sidebar-foreground hover:text-destructive hover:bg-destructive/10 gap-2"
+        >
+          <LogOut className="h-4 w-4" />
+          {!collapsed && "Logout"}
+        </Button>
       </SidebarFooter>
     </Sidebar>
   );
