@@ -3,18 +3,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Plus, Search, Filter, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-
-const products = [
-  { sku: "CAM-IP-001", name: "IP Dome Camera 4MP", brand: "Hikvision", category: "CCTV Cameras", cost: "₹4,200", sell: "₹6,500", stock: 45, warehouse: "Main" },
-  { sku: "CAM-BUL-002", name: "Bullet Camera 2MP", brand: "Dahua", category: "CCTV Cameras", cost: "₹2,800", sell: "₹4,200", stock: 32, warehouse: "Main" },
-  { sku: "NVR-16CH-001", name: "16 Channel NVR", brand: "Hikvision", category: "DVR/NVR", cost: "₹12,500", sell: "₹18,000", stock: 8, warehouse: "Main" },
-  { sku: "CAB-CAT6-001", name: "CAT6 Cable (305m)", brand: "D-Link", category: "Cables", cost: "₹3,500", sell: "₹5,000", stock: 3, warehouse: "Store B", low: true },
-  { sku: "SW-POE-001", name: "8-Port PoE Switch", brand: "TP-Link", category: "Networking", cost: "₹5,600", sell: "₹8,200", stock: 2, warehouse: "Main", low: true },
-  { sku: "HDD-4TB-001", name: "4TB Surveillance HDD", brand: "Seagate", category: "Accessories", cost: "₹7,800", sell: "₹10,500", stock: 15, warehouse: "Main" },
-];
+import { inventoryApi } from "@/lib/api";
+import { useApiQuery } from "@/hooks/useApiQuery";
+import { LoadingState, ErrorState, EmptyState } from "@/components/LoadingState";
 
 export default function InventoryPage() {
-  const lowStockCount = products.filter(p => (p as any).low).length;
+  const { data: products, isLoading, error, refetch } = useApiQuery(["inventory", "products"], inventoryApi.getProducts);
+  const { data: summary } = useApiQuery(["inventory", "summary"], inventoryApi.getSummary);
+
+  if (isLoading) return <div className="module-page"><LoadingState message="Loading inventory..." /></div>;
+  if (error) return <div className="module-page"><ErrorState message="Failed to load inventory" onRetry={refetch} /></div>;
 
   return (
     <div className="module-page">
@@ -23,16 +21,16 @@ export default function InventoryPage() {
           <h1 className="page-title">Inventory</h1>
           <p className="text-sm text-muted-foreground">Manage stock, products, and warehouse transfers</p>
         </div>
-        <Button className="gap-2"><Plus className="h-4 w-4" />Add Product</Button>
+        <Button className="gap-2 bg-gradient-to-r from-accent to-accent/80 shadow-lg shadow-accent/20"><Plus className="h-4 w-4" />Add Product</Button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="kpi-card"><p className="text-xs text-muted-foreground">Total Products</p><p className="text-xl font-bold mt-1">{products.length}</p></div>
-        <div className="kpi-card"><p className="text-xs text-muted-foreground">Total Stock Value</p><p className="text-xl font-bold mt-1">₹8,42,500</p></div>
-        <div className="kpi-card"><p className="text-xs text-muted-foreground">Warehouses</p><p className="text-xl font-bold mt-1">2</p></div>
-        <div className="kpi-card border-warning/30">
+        <div className="kpi-card bg-gradient-to-br from-blue-500/10 to-transparent border-none shadow-sm"><p className="text-xs text-muted-foreground font-medium">Total Products</p><p className="text-2xl font-extrabold mt-1">{summary?.total_products || products?.length || 0}</p></div>
+        <div className="kpi-card bg-gradient-to-br from-emerald-500/10 to-transparent border-none shadow-sm"><p className="text-xs text-muted-foreground font-medium">Total Stock Value</p><p className="text-2xl font-extrabold mt-1">{summary?.stock_value || "₹0"}</p></div>
+        <div className="kpi-card bg-gradient-to-br from-violet-500/10 to-transparent border-none shadow-sm"><p className="text-xs text-muted-foreground font-medium">Warehouses</p><p className="text-2xl font-extrabold mt-1">{summary?.warehouses || 0}</p></div>
+        <div className="kpi-card bg-gradient-to-br from-amber-500/10 to-transparent border-none shadow-sm">
           <div className="flex items-center gap-1.5"><AlertTriangle className="h-4 w-4 text-warning" /><p className="text-xs text-warning font-medium">Low Stock Alerts</p></div>
-          <p className="text-xl font-bold mt-1 text-warning">{lowStockCount}</p>
+          <p className="text-2xl font-extrabold mt-1 text-warning">{summary?.low_stock_count || 0}</p>
         </div>
       </div>
 
@@ -44,13 +42,14 @@ export default function InventoryPage() {
         <Button variant="outline" size="sm" className="gap-1.5"><Filter className="h-3.5 w-3.5" />Filter</Button>
       </div>
 
-      <Card>
+      {!products || products.length === 0 ? <EmptyState title="No products yet" description="Add your first product to get started" /> : (
+      <Card className="border-none shadow-md overflow-hidden">
         <CardContent className="p-0">
           <table className="data-table">
-            <thead><tr><th>SKU</th><th>Product</th><th>Brand</th><th>Category</th><th>Cost</th><th>Sell</th><th>Stock</th><th>Warehouse</th></tr></thead>
+            <thead className="bg-muted/50"><tr><th>SKU</th><th>Product</th><th>Brand</th><th>Category</th><th>Cost</th><th>Sell</th><th>Stock</th><th>Warehouse</th></tr></thead>
             <tbody>
               {products.map((p) => (
-                <tr key={p.sku} className="hover:bg-muted/30">
+                <tr key={p.sku} className="hover:bg-accent/5 transition-colors">
                   <td className="font-mono text-xs">{p.sku}</td>
                   <td className="font-medium">{p.name}</td>
                   <td>{p.brand}</td>
@@ -58,8 +57,8 @@ export default function InventoryPage() {
                   <td>{p.cost}</td>
                   <td className="font-semibold">{p.sell}</td>
                   <td>
-                    <span className={(p as any).low ? "text-warning font-semibold" : ""}>
-                      {(p as any).low && <AlertTriangle className="inline h-3 w-3 mr-1" />}
+                    <span className={p.low ? "text-warning font-semibold" : ""}>
+                      {p.low && <AlertTriangle className="inline h-3 w-3 mr-1" />}
                       {p.stock}
                     </span>
                   </td>
@@ -70,6 +69,7 @@ export default function InventoryPage() {
           </table>
         </CardContent>
       </Card>
+      )}
     </div>
   );
 }
