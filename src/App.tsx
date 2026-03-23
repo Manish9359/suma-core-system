@@ -19,6 +19,7 @@ import ReportsPage from "./pages/ReportsPage";
 import SettingsPage from "./pages/SettingsPage";
 import LoginPage from "./pages/LoginPage";
 import NotFound from "./pages/NotFound";
+import InvoicePrint from "./pages/InvoicePrint";
 import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
@@ -55,6 +56,8 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={isAuthenticated ? <Navigate to="/" replace /> : <LoginPage />} />
+      <Route path="/invoice/:id" element={<InvoicePrint />} />
+      <Route path="/print/:type/:id" element={<InvoicePrint />} />
       <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/crm" element={<ProtectedRoute><CRMPage /></ProtectedRoute>} />
       <Route path="/sales" element={<ProtectedRoute><SalesPage /></ProtectedRoute>} />

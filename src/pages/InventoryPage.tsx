@@ -1,13 +1,17 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Filter, AlertTriangle } from "lucide-react";
+import { Plus, Search, Filter, AlertTriangle, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { inventoryApi } from "@/lib/api";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { LoadingState, ErrorState, EmptyState } from "@/components/LoadingState";
+import { RecordModal, RecordField } from "@/components/RecordModal";
+import { useState } from "react";
 
 export default function InventoryPage() {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<any>(null);
   const { data: products, isLoading, error, refetch } = useApiQuery(["inventory", "products"], inventoryApi.getProducts);
   const { data: summary } = useApiQuery(["inventory", "summary"], inventoryApi.getSummary);
 
@@ -21,7 +25,7 @@ export default function InventoryPage() {
           <h1 className="page-title">Inventory</h1>
           <p className="text-sm text-muted-foreground">Manage stock, products, and warehouse transfers</p>
         </div>
-        <Button className="gap-2 bg-gradient-to-r from-accent to-accent/80 shadow-lg shadow-accent/20"><Plus className="h-4 w-4" />Add Product</Button>
+        <Button onClick={() => { setEditingProduct(null); setModalOpen(true); }} className="gap-2 bg-gradient-to-r from-accent to-accent/80 shadow-lg shadow-accent/20"><Plus className="h-4 w-4" />Add Product</Button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
@@ -46,7 +50,7 @@ export default function InventoryPage() {
         <Card className="border-none shadow-md overflow-hidden">
           <CardContent className="p-0">
             <table className="data-table">
-              <thead className="bg-muted/50"><tr><th>SKU</th><th>Product</th><th>Brand</th><th>Category</th><th>Cost</th><th>Sell</th><th>Stock</th><th>Warehouse</th></tr></thead>
+              <thead className="bg-muted/50"><tr><th>SKU</th><th>Product</th><th>Brand</th><th>Category</th><th>Cost</th><th>Sell</th><th>Stock</th><th>Warehouse</th><th>Actions</th></tr></thead>
               <tbody>
                 {products.map((p) => (
                   <tr key={p.sku} className="hover:bg-accent/5 transition-colors">
@@ -55,7 +59,7 @@ export default function InventoryPage() {
                     <td>{p.brand}</td>
                     <td><Badge variant="secondary">{p.category}</Badge></td>
                     <td>{p.cost}</td>
-                    <td className="font-semibold">{p.sell_price}</td>
+                    <td className="font-semibold">{p.sell}</td>
                     <td>
                       <span className={p.low ? "text-warning font-semibold" : ""}>
                         {p.low && <AlertTriangle className="inline h-3 w-3 mr-1" />}
@@ -63,6 +67,18 @@ export default function InventoryPage() {
                       </span>
                     </td>
                     <td>{p.warehouse}</td>
+                    <td className="flex items-center gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => {
+                        setEditingProduct(p);
+                        setModalOpen(true);
+                      }}>Edit</Button>
+                      <Button variant="ghost" size="icon" className="text-destructive h-8 w-8" onClick={async () => {
+                        if (confirm("Delete this product?")) {
+                          await inventoryApi.deleteProduct(p.sku);
+                          refetch();
+                        }
+                      }}><Trash2 className="h-4 w-4" /></Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -70,6 +86,31 @@ export default function InventoryPage() {
           </CardContent>
         </Card>
       )}
+
+      <RecordModal
+        open={modalOpen}
+        onOpenChange={(val) => { setModalOpen(val); if (!val) setEditingProduct(null); }}
+        title={editingProduct ? "Edit Product" : "Add New Product"}
+        initialData={editingProduct || {}}
+        fields={[
+          { name: "sku", label: "Item Code (SKU)", type: "text", required: true },
+          { name: "name", label: "Item Name", type: "text", required: true },
+          { name: "brand", label: "Brand", type: "text" },
+          { name: "category", label: "Category", type: "select", options: ["Smart Switches", "Sensors", "Cameras", "Accessories"] },
+          { name: "cost", label: "Cost Price (₹)", type: "number", required: true },
+          { name: "sell", label: "Selling Price (₹)", type: "number", required: true },
+          { name: "stock", label: "Current Stock", type: "number", required: true }
+        ]}
+        onSubmit={async (data) => {
+          if (editingProduct) {
+            await inventoryApi.updateProduct(editingProduct.sku, data);
+          } else {
+            await inventoryApi.createProduct(data);
+          }
+          refetch();
+          setEditingProduct(null);
+        }}
+      />
     </div>
   );
 }

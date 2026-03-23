@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { crmApi } from "@/lib/api";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { LoadingState, ErrorState, EmptyState } from "@/components/LoadingState";
+import { RecordModal, RecordField } from "@/components/RecordModal";
 
 const statusColors: Record<string, string> = {
   New: "status-badge status-open",
@@ -17,8 +18,34 @@ const statusColors: Record<string, string> = {
 
 export default function CRMPage() {
   const [tab, setTab] = useState<"leads" | "customers">("leads");
+  const [modalOpen, setModalOpen] = useState(false);
   const { data: leads, isLoading: leadsLoading, error: leadsError, refetch: refetchLeads } = useApiQuery(["crm", "leads"], crmApi.getLeads);
   const { data: customers, isLoading: customersLoading, error: customersError, refetch: refetchCustomers } = useApiQuery(["crm", "customers"], crmApi.getCustomers);
+
+  const customerFields: RecordField[] = [
+    { name: "company", label: "Company Name", type: "text", required: true },
+    { name: "contact", label: "Contact Person", type: "text", required: true },
+    { name: "address", label: "Address Options", type: "text" },
+    { name: "gst", label: "Tax/GST ID", type: "text" }
+  ];
+
+  const leadFields: RecordField[] = [
+    { name: "name", label: "Lead Name", type: "text", required: true },
+    { name: "company", label: "Company", type: "text" },
+    { name: "phone", label: "Phone", type: "text" },
+    { name: "email", label: "Email", type: "text" },
+    { name: "source", label: "Source", type: "select", options: ["Website", "Referral", "Cold Call"] }
+  ];
+
+  const handleSave = async (data: any) => {
+    if (tab === "leads") {
+      await crmApi.createLead(data);
+      refetchLeads();
+    } else {
+      await crmApi.createCustomer(data);
+      refetchCustomers();
+    }
+  };
 
   return (
     <div className="module-page">
@@ -27,7 +54,7 @@ export default function CRMPage() {
           <h1 className="page-title">CRM</h1>
           <p className="text-sm text-muted-foreground">Manage leads and customer relationships</p>
         </div>
-        <Button className="gap-2 bg-gradient-to-r from-accent to-accent/80 hover:from-accent/90 hover:to-accent/70 shadow-lg shadow-accent/20">
+        <Button onClick={() => setModalOpen(true)} className="gap-2 bg-gradient-to-r from-accent to-accent/80 hover:from-accent/90 hover:to-accent/70 shadow-lg shadow-accent/20">
           <Plus className="h-4 w-4" />
           {tab === "leads" ? "Add Lead" : "Add Customer"}
         </Button>
@@ -110,6 +137,14 @@ export default function CRMPage() {
         </Card>
         )
       )}
+
+      <RecordModal
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        title={tab === "leads" ? "Add New Lead" : "Add New Customer"}
+        fields={tab === "leads" ? leadFields : customerFields}
+        onSubmit={handleSave}
+      />
     </div>
   );
 }

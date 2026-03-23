@@ -48,7 +48,11 @@ class ApiClient {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: "Request failed" }));
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      const detail = error.detail;
+      const msg = typeof detail === "string" ? detail : Array.isArray(detail)
+        ? detail.map((d: any) => `${d.loc?.join(".")}: ${d.msg}`).join(" | ")
+        : JSON.stringify(detail) || `HTTP ${response.status}`;
+      throw new Error(msg);
     }
 
     return response.json();
@@ -104,9 +108,15 @@ export const crmApi = {
 
 export const salesApi = {
   getInvoices: () => api.get<Invoice[]>("/api/sales/invoices"),
+  getInvoice: (id: string) => api.get<any>(`/api/sales/invoices/${id}`),
   createInvoice: (data: Partial<Invoice>) => api.post<Invoice>("/api/sales/invoices", data),
+  updateInvoice: (id: string, data: Partial<Invoice>) => api.put<Invoice>(`/api/sales/invoices/${id}`, data),
+  deleteInvoice: (id: string) => api.delete(`/api/sales/invoices/${id}`),
   getQuotations: () => api.get<Quotation[]>("/api/sales/quotations"),
+  getQuotation: (id: string) => api.get<any>(`/api/sales/quotations/${id}`),
   createQuotation: (data: Partial<Quotation>) => api.post<Quotation>("/api/sales/quotations", data),
+  updateQuotation: (id: string, data: Partial<Quotation>) => api.put<Quotation>(`/api/sales/quotations/${id}`, data),
+  deleteQuotation: (id: string) => api.delete(`/api/sales/quotations/${id}`),
   getSummary: () => api.get<SalesSummary>("/api/sales/summary"),
 };
 
@@ -211,14 +221,18 @@ export interface Invoice {
   date: string;
   amount: string;
   status: string;
+  custom_data?: any;
 }
 
 export interface Quotation {
   id: string;
   customer: string;
   date: string;
-  amount: string;
+  valid_till?: string;
+  amount: number;
+  grand_total?: number;
   status: string;
+  custom_data?: any;
 }
 
 export interface SalesSummary {

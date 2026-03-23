@@ -1,23 +1,21 @@
 from fastapi import FastAPI, Depends, HTTPException
-from fastapi.security import OAuth2PasswordBearer
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import create_engine, Column, Integer, String, Float, ForeignKey, DateTime, func
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship, Session
-from pydantic import BaseModel, EmailStr
-from jose import jwt, JWTError
-from passlib.context import CryptContext
-from datetime import datetime, timedelta
-from typing import List, Optional
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+import uuid
 
-# ---------- CONFIG ----------
-DATABASE_URL = "sqlite:///./erp.db"
-SECRET_KEY = "supersecretkey"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60
+from app.database import engine, Base, get_db
+from app.models import Tenant, User, CustomField, Lead, Customer, Product, Invoice, InvoiceItem, Account, LedgerEntry, Employee, PurchaseOrder, WorkflowTask, CompanySettings, Quotation, QuotationItem
+from app.schemas import LoginReq, TokenRes, CustomerCreate, ProductCreate, InvoiceCreate, EmployeeCreate
+from pydantic import BaseModel
+from typing import List
+from datetime import datetime
+from app.security import hash_password, verify_password, create_token, get_current_user_token
 
-# ---------- APP ----------
-app = FastAPI(title="ERP SaaS Backend")
+# Initialize DB tables
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="Extensible ERP API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,331 +25,490 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------- DB SETUP ----------
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-Base = declarative_base()
-
-# ---------- SECURITY ----------
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
-
-# ---------- MODELS ----------
-class Tenant(Base):
-    __tablename__ = "tenants"
-    id = Column(Integer, primary_key=True)
-    name = Column(String, unique=True, nullable=False)
-    domain = Column(String, unique=True, nullable=True)
-    users = relationship("User", back_populates="tenant")
-
-class User(Base):
-    __tablename__ = "users"
-    id = Column(Integer, primary_key=True)
-    username = Column(String, unique=True, nullable=False)
-    password = Column(String, nullable=False)
-    role = Column(String, default="staff")
-    tenant_id = Column(Integer, ForeignKey("tenants.id"))
-    tenant = relationship("Tenant", back_populates="users")
-
-class Customer(Base):
-    __tablename__ = "customers"
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-
-class Invoice(Base):
-    __tablename__ = "invoices"
-    id = Column(Integer, primary_key=True)
-    amount = Column(Float)
-    customer_id = Column(Integer, ForeignKey("customers.id"))
-    tenant_id = Column(Integer, ForeignKey("tenants.id"))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    customer = relationship("Customer")
-
-class Product(Base):
-    __tablename__ = "products"
-    id = Column(Integer, primary_key=True)
-    sku = Column(String, unique=True, nullable=False)
-    name = Column(String, nullable=False)
-    brand = Column(String, nullable=True)
-    category = Column(String, nullable=True)
-    cost = Column(Float, default=0.0)
-    sell_price = Column(Float, default=0.0)
-    stock = Column(Float, default=0.0)
-    warehouse = Column(String, nullable=True)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
-
-class Employee(Base):
-    __tablename__ = "employees"
-    id = Column(Integer, primary_key=True)
-    name = Column(String)
-    tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
-
-Base.metadata.create_all(bind=engine)
-
-# ---------- SCHEMAS ----------
-class LoginRequest(BaseModel):
-    email: EmailStr
-    password: str
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    user: dict
-
-class CustomerCreate(BaseModel):
-    name: str
-
-class InvoiceCreate(BaseModel):
-    customer_id: int
-    amount: float
-
-class ProductCreate(BaseModel):
-    sku: str
-    name: str
-    brand: Optional[str] = None
-    category: Optional[str] = None
-    cost: float
-    sell_price: float
-    stock: float
-    warehouse: Optional[str] = None
-
-class ProductResponse(BaseModel):
-    id: int
-    sku: str
-    name: str
-    brand: Optional[str]
-    category: Optional[str]
-    cost: float
-    sell_price: float
-    stock: float
-    warehouse: Optional[str]
-
-    class Config:
-        orm_mode = True
-
-class EmployeeCreate(BaseModel):
-    name: str
-
-# ---------- UTILS ----------
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-def hash_password(password: str):
-    return pwd_context.hash(password)
-
-def verify_password(plain: str, hashed: str):
-    return pwd_context.verify(plain, hashed)
-
-def create_token(user: User):
-    payload = {
-        "sub": user.username,
-        "tenant_id": user.tenant_id,
-        "role": user.role,
-        "exp": datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    }
-    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
-
-def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username = payload.get("sub")
-        tenant_id = payload.get("tenant_id")
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    user = db.query(User).filter(User.username == username, User.tenant_id == tenant_id).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="User not found")
-    return user
-
-# ---------- AUTH ----------
-@app.post("/api/auth/login", response_model=TokenResponse)
-def login(data: LoginRequest, db: Session = Depends(get_db)):
+# ─── AUTHENTICATION ───
+@app.post("/api/auth/login", response_model=TokenRes)
+def login(data: LoginReq, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == data.email).first()
     if not user or not verify_password(data.password, user.password):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
+        raise HTTPException(status_code=401, detail="Invalid credential")
     token = create_token(user)
-    return {"access_token": token, "token_type": "bearer", "user": {"username": user.username, "role": user.role, "tenant_id": user.tenant_id}}
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {"id": user.id, "email": user.username, "name": "Admin", "role": user.role}
+    }
 
-# ---------- DASHBOARD ----------
+@app.get("/api/auth/me")
+def get_me(user: User = Depends(get_current_user_token)):
+    return {"id": user.id, "email": user.username, "name": "Admin", "role": user.role}
+
+# ─── PURCHASING ───
+@app.get("/api/purchasing/orders")
+def get_purchasing(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(PurchaseOrder).filter(PurchaseOrder.tenant_id == user.tenant_id).all()
+
+class PurchaseOrderCreate(BaseModel):
+    vendor: str
+    date: str
+    items: List[dict] # simplify for now
+
+@app.post("/api/purchasing/orders")
+def create_purchasing(data: PurchaseOrderCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    po_id = f"PO-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}"
+    total = sum([(i.get("qty", 0) * i.get("rate", 0)) for i in data.items])
+    po = PurchaseOrder(id=po_id, vendor=data.vendor, date=data.date, items=len(data.items), total=total, status="Ordered", tenant_id=user.tenant_id)
+    db.add(po)
+    db.commit()
+    db.refresh(po)
+    return po
+
+# ─── DASHBOARD ───
 @app.get("/api/dashboard/kpis")
-def dashboard_kpis(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    revenue = db.query(Invoice).filter(Invoice.tenant_id == user.tenant_id).count()
-    customers = db.query(Customer).filter(Customer.tenant_id == user.tenant_id).count()
-    return {"revenue": revenue, "customers": customers}
+def get_kpis(user: User = Depends(get_current_user_token), db: Session = Depends(get_db)):
+    t_id = user.tenant_id
+    total_sales = db.query(func.sum(Invoice.amount)).filter(Invoice.tenant_id == t_id, Invoice.status != "Draft").scalar() or 0
+    invoices = db.query(Invoice).filter(Invoice.tenant_id == t_id).count()
+    low_stock = db.query(Product).filter(Product.tenant_id == t_id, Product.stock < 10).count()
+    return {
+        "total_sales": f"₹{total_sales:,.2f}",
+        "monthly_revenue": f"₹{total_sales * 0.4:,.2f}", # Mock monthly
+        "pending_invoices": db.query(Invoice).filter(Invoice.tenant_id == t_id, Invoice.status == "Draft").count(),
+        "low_stock_items": low_stock,
+        "sales_change": "+14%", "revenue_change": "+8%", "invoices_change": "+2%", "stock_change": "-5%",
+        "active_amcs": 0, "open_tickets": 0, "amc_change": "0", "tickets_change": "0"
+    }
 
-@app.get("/api/dashboard/sales-chart")
-def dashboard_sales_chart(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    invoices = db.query(Invoice).filter(Invoice.tenant_id == user.tenant_id).order_by(Invoice.created_at.desc()).limit(5).all()
-    return [{"customer": inv.customer.name, "amount": inv.amount, "date": inv.created_at} for inv in invoices]
+# ─── CUSTOMIZATION (DocTypes fields) ───
+@app.get("/api/system/fields/{module_name}")
+def get_custom_fields(module_name: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(CustomField).filter(CustomField.module == module_name, CustomField.tenant_id == user.tenant_id).all()
 
-@app.get("/api/dashboard/revenue-chart")
-def dashboard_revenue_chart(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    revenue_data = db.query(Customer.name, func.sum(Invoice.amount)).join(Invoice, Invoice.customer_id == Customer.id)\
-                    .filter(Customer.tenant_id == user.tenant_id).group_by(Customer.name).all()
-    return [{"customer": r[0], "revenue": r[1]} for r in revenue_data]
+# ─── CRM (Customers & Leads) ───
+@app.get("/api/crm/leads")
+def list_leads(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(Lead).filter(Lead.tenant_id == user.tenant_id).all()
 
-@app.get("/api/dashboard/inventory-chart")
-def dashboard_inventory_chart(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    products = db.query(Product).filter(Product.tenant_id == user.tenant_id).all()
-    return [{"product": p.name, "quantity": p.stock} for p in products]
+class LeadCreate(BaseModel):
+    name: str
+    company: str = ""
+    phone: str = ""
+    email: str = ""
+    source: str = ""
 
-@app.get("/api/dashboard/recent-activity")
-def dashboard_recent_activity(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    recent_invoices = db.query(Invoice).filter(Invoice.tenant_id == user.tenant_id).order_by(Invoice.created_at.desc()).limit(5).all()
-    return [{"type": "invoice", "name": inv.customer.name, "amount": inv.amount, "date": inv.created_at} for inv in recent_invoices]
+@app.post("/api/crm/leads")
+def create_lead(data: LeadCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    if user.role != "Admin": raise HTTPException(403, "Admins only")
+    lead_id = f"LD-{str(uuid.uuid4())[:6].upper()}"
+    lead = Lead(id=lead_id, tenant_id=user.tenant_id, name=data.name, company=data.company, phone=data.phone, email=data.email, status="New")
+    db.add(lead)
+    db.commit()
+    db.refresh(lead)
+    return lead
 
-# ---------- CRM ----------
 @app.get("/api/crm/customers")
-def get_customers(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_customers(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Customer).filter(Customer.tenant_id == user.tenant_id).all()
 
 @app.post("/api/crm/customers")
-def create_customer(data: CustomerCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    existing = db.query(Customer).filter(Customer.name == data.name, Customer.tenant_id == user.tenant_id).first()
-    if existing:
-        raise HTTPException(400, "Customer already exists")
-    customer = Customer(name=data.name, tenant_id=user.tenant_id)
-    db.add(customer)
+def create_customer(data: CustomerCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    if user.role != "Admin": raise HTTPException(403, "Admins only")
+    cust_id = f"CUST-{str(uuid.uuid4())[:6].upper()}"
+    cust = Customer(id=cust_id, tenant_id=user.tenant_id, **data.dict(exclude_unset=True))
+    db.add(cust)
     db.commit()
-    db.refresh(customer)
-    return customer
+    db.refresh(cust)
+    return cust
 
-@app.get("/api/crm/leads")
-def get_crm_leads(user: User = Depends(get_current_user)):
-    return [{"lead": "Lead 1"}, {"lead": "Lead 2"}]
-
-# ---------- SALES ----------
-@app.get("/api/sales/invoices")
-def get_invoices(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return db.query(Invoice).filter(Invoice.tenant_id == user.tenant_id).all()
-
-@app.post("/api/sales/invoices")
-def create_invoice(data: InvoiceCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    customer = db.query(Customer).filter(Customer.id == data.customer_id, Customer.tenant_id == user.tenant_id).first()
-    if not customer:
-        raise HTTPException(400, "Customer not found")
-    invoice = Invoice(customer_id=customer.id, amount=data.amount, tenant_id=user.tenant_id)
-    db.add(invoice)
-    db.commit()
-    db.refresh(invoice)
-    return invoice
-
-# ---------- INVENTORY ----------
-@app.get("/api/inventory/products", response_model=List[ProductResponse])
-def get_products(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+# ─── INVENTORY ───
+@app.get("/api/inventory/products")
+def list_products(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Product).filter(Product.tenant_id == user.tenant_id).all()
 
-@app.post("/api/inventory/products", response_model=ProductResponse)
-def create_product(data: ProductCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    existing = db.query(Product).filter(Product.sku == data.sku, Product.tenant_id == user.tenant_id).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Product with this SKU already exists")
-    product = Product(
-        sku=data.sku,
-        name=data.name,
-        brand=data.brand,
-        category=data.category,
-        cost=data.cost,
-        sell_price=data.sell_price,
-        stock=data.stock,
-        warehouse=data.warehouse,
-        tenant_id=user.tenant_id
-    )
-    db.add(product)
+@app.post("/api/inventory/products")
+def add_product(data: ProductCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    if user.role != "Admin": raise HTTPException(403, "Admins only")
+    prod = Product(tenant_id=user.tenant_id, **data.dict(exclude_unset=True))
+    db.add(prod)
     db.commit()
-    db.refresh(product)
-    return product
+    db.refresh(prod)
+    return prod
+
+@app.put("/api/inventory/products/{sku}")
+def update_product(sku: str, data: ProductCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    if user.role != "Admin": raise HTTPException(403, "Admins only")
+    p = db.query(Product).filter_by(sku=sku, tenant_id=user.tenant_id).first()
+    if not p: raise HTTPException(404, "Product not found")
+    for k, v in data.dict(exclude_unset=True).items():
+        setattr(p, k, v)
+    db.commit()
+    db.refresh(p)
+    return p
+
+@app.delete("/api/inventory/products/{sku}")
+def delete_product(sku: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    if user.role != "Admin": raise HTTPException(403, "Admins only")
+    p = db.query(Product).filter_by(sku=sku, tenant_id=user.tenant_id).first()
+    if not p: raise HTTPException(404, "Product not found")
+    db.delete(p)
+    db.commit()
+    return {"status": "deleted"}
 
 @app.get("/api/inventory/summary")
-def inventory_summary(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    total_products = db.query(Product).filter(Product.tenant_id == user.tenant_id).count()
-    total_quantity = db.query(func.sum(Product.stock)).filter(Product.tenant_id == user.tenant_id).scalar() or 0
-    return {"total_products": total_products, "total_quantity": total_quantity}
+def get_inv_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    t_id = user.tenant_id
+    total_val = db.query(func.sum(Product.stock * Product.cost)).filter(Product.tenant_id == t_id).scalar() or 0
+    return {
+        "total_products": db.query(Product).filter(Product.tenant_id == t_id).count(),
+        "stock_value": f"₹{total_val:,.2f}",
+        "warehouses": db.query(Product.warehouse).filter(Product.tenant_id == t_id).distinct().count(),
+        "low_stock_count": db.query(Product).filter(Product.tenant_id == t_id, Product.stock < 10).count()
+    }
 
-# ---------- PURCHASING ----------
+# ─── ACCOUNTING & SALES (Invoices) ───
+@app.get("/api/sales/invoices")
+def list_invoices(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(Invoice).filter(Invoice.tenant_id == user.tenant_id).all()
+
+@app.get("/api/sales/invoices/{inv_id}")
+def get_invoice(inv_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    inv = db.query(Invoice).filter_by(id=inv_id, tenant_id=user.tenant_id).first()
+    if not inv: raise HTTPException(404, "Invoice not found")
+    
+    items = db.query(InvoiceItem).filter_by(invoice_id=inv.id).all()
+    out_items = []
+    for i in items:
+        p = db.query(Product).filter_by(sku=i.item_code, tenant_id=user.tenant_id).first()
+        out_items.append({
+            "item_code": i.item_code,
+            "name": p.name if p else "Unknown Items",
+            "qty": i.qty,
+            "rate": i.rate,
+            "disc_pct": i.disc_pct,
+            "amount": i.amount
+        })
+    
+    # Customer lookup
+    cust = db.query(Customer).filter_by(company=inv.customer, tenant_id=user.tenant_id).first()
+    
+    return {
+        "id": inv.id,
+        "date": inv.date,
+        "status": inv.status,
+        "amount": inv.amount,
+        "grand_total": inv.grand_total,
+        "custom_data": inv.custom_data,
+        "items": out_items,
+        "customer": inv.customer,
+        "customer_name": inv.customer,
+        "customer_contact": cust.contact if cust else "",
+        "customer_address": cust.address if cust else "",
+        "customer_gst": cust.gst if cust else ""
+    }
+
+class InvoiceCreateExtended(BaseModel):
+    customer: str
+    date: str
+    items: List[dict]
+    discount: float = 0.0
+    custom_data: dict = {}
+
+@app.post("/api/sales/invoices")
+def add_invoice(data: InvoiceCreateExtended, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    inv_id = f"INV-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}"
+    total = sum([item.get("qty",0) * item.get("rate",0) for item in data.items])
+    discount = data.discount
+    taxable = max(total - discount, 0)
+    gst_rate = float(data.custom_data.get("gst_rate") or 0)
+    cgst = round(taxable * (gst_rate / 2) / 100, 2) if gst_rate else 0
+    sgst = cgst
+    grand = round(taxable + cgst + sgst, 2)
+    
+    inv = Invoice(
+        id=inv_id, customer=data.customer, date=data.date, 
+        amount=total, grand_total=grand, status=data.custom_data.get("status", "Draft"), 
+        tenant_id=user.tenant_id, 
+        custom_data={
+            "discount": discount, "gst_rate": gst_rate, 
+            "cgst": cgst, "sgst": sgst, "taxable": taxable, **data.custom_data
+        }
+    )
+    db.add(inv)
+    
+    for i in data.items:
+        db.add(InvoiceItem(invoice_id=inv_id, item_code=i.get("item_code"), qty=i.get("qty",0), rate=i.get("rate",0), disc_pct=i.get("disc_pct",0), amount=i.get("qty",0)*i.get("rate",0)))
+    
+    if grand > 50000:
+        db.add(WorkflowTask(doc_type="Invoice", doc_id=inv_id, action_required_by="Manager", status="Pending", tenant_id=user.tenant_id))
+
+    db.commit()
+    db.refresh(inv)
+    return inv
+
+@app.put("/api/sales/invoices/{inv_id}")
+def update_invoice(inv_id: str, data: InvoiceCreateExtended, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    inv = db.query(Invoice).filter_by(id=inv_id, tenant_id=user.tenant_id).first()
+    if not inv: raise HTTPException(404, "Invoice not found")
+    
+    inv.customer = data.customer
+    inv.date = data.date
+    inv.status = data.custom_data.get("status", inv.status)
+    
+    total = sum([item.get("qty",0) * item.get("rate",0) for item in data.items])
+    discount = data.discount
+    taxable = total - discount if total - discount > 0 else 0
+    gst_rate = float(data.custom_data.get("gst_rate", 18))
+    cgst = taxable * (gst_rate / 2) / 100
+    sgst = taxable * (gst_rate / 2) / 100
+    grand = taxable + cgst + sgst
+    
+    inv.amount = total
+    inv.grand_total = grand
+    inv.custom_data = {
+        "discount": discount, "gst_rate": gst_rate, 
+        "cgst": cgst, "sgst": sgst, "taxable": taxable, **data.custom_data
+    }
+    
+    db.query(InvoiceItem).filter_by(invoice_id=inv.id).delete()
+    for i in data.items:
+        db.add(InvoiceItem(invoice_id=inv_id, item_code=i.get("item_code"), qty=i.get("qty",0), rate=i.get("rate",0), disc_pct=i.get("disc_pct",0), amount=i.get("qty",0)*i.get("rate",0)))
+        
+    db.commit()
+    db.refresh(inv)
+    return inv
+
+@app.delete("/api/sales/invoices/{inv_id}")
+def delete_invoice(inv_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    if user.role != "Admin": raise HTTPException(403, "Admins only")
+    inv = db.query(Invoice).filter_by(id=inv_id, tenant_id=user.tenant_id).first()
+    if not inv: raise HTTPException(404, "Invoice not found")
+    db.query(InvoiceItem).filter_by(invoice_id=inv.id).delete()
+    db.delete(inv)
+    db.commit()
+    return {"status": "deleted"}
+
+from typing import List
+
+# ─── PURCHASING ───
 @app.get("/api/purchasing/orders")
-def get_purchase_orders(user: User = Depends(get_current_user)):
-    return [{"order": "Order 1"}, {"order": "Order 2"}]
+def get_purchasing(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(PurchaseOrder).filter(PurchaseOrder.tenant_id == user.tenant_id).all()
 
-# ---------- ACCOUNTING ----------
+class PurchaseOrderCreate(BaseModel):
+    vendor: str
+    date: str
+    items: List[dict]
+
+@app.post("/api/purchasing/orders")
+def create_purchasing(data: PurchaseOrderCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    po_id = f"PO-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}"
+    total = sum([(i.get("qty", 0) * i.get("rate", 0)) for i in data.items])
+    po = PurchaseOrder(id=po_id, vendor=data.vendor, date=data.date, items=len(data.items), total=total, status="Ordered", tenant_id=user.tenant_id)
+    db.add(po)
+    db.commit()
+    db.refresh(po)
+    return po
+
+# ─── ACCOUNTING ───
 @app.get("/api/accounting/accounts")
-def get_accounts(user: User = Depends(get_current_user)):
-    return [{"account": "Cash"}, {"account": "Bank"}]
+def get_accounts(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(Account).filter(Account.tenant_id == user.tenant_id).all()
 
 @app.get("/api/accounting/summary")
-def accounting_summary(user: User = Depends(get_current_user)):
-    return {"total_debits": 1000, "total_credits": 500}
+def get_acc_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return {"total_revenue": "₹0", "total_expenses": "₹0", "net_profit": "₹0", "gst_payable": "₹0"}
 
-# ---------- HR ----------
+# ─── HR ───
 @app.get("/api/hr/employees")
-def get_employees(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_employees(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Employee).filter(Employee.tenant_id == user.tenant_id).all()
 
 @app.post("/api/hr/employees")
-def create_employee(data: EmployeeCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    employee = Employee(name=data.name, tenant_id=user.tenant_id)
-    db.add(employee)
+def add_employee(data: EmployeeCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    emp_id = f"EMP-{str(uuid.uuid4())[:4].upper()}"
+    emp = Employee(
+        id=emp_id, tenant_id=user.tenant_id,
+        name=data.name, role=data.role, dept=data.dept, salary=data.salary, joining=data.joining, status="Active"
+    )
+    db.add(emp)
     db.commit()
-    db.refresh(employee)
-    return employee
+    db.refresh(emp)
+    return emp
 
 @app.get("/api/hr/summary")
-def hr_summary(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    total_employees = db.query(Employee).filter(Employee.tenant_id == user.tenant_id).count()
-    return {"total_employees": total_employees}
+def get_hr_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    count = db.query(Employee).filter(Employee.tenant_id == user.tenant_id).count()
+    payroll = db.query(func.sum(Employee.salary)).filter(Employee.tenant_id == user.tenant_id).scalar() or 0
+    return {"total_employees": count, "on_leave": 0, "monthly_payroll": f"₹{payroll:,.2f}", "departments": 3}
 
-# ---------- SERVICE ----------
+# ─── SEED ───
+def initialize_system():
+    db = next(get_db())
+    if not db.query(Tenant).filter_by(name="ERPBase").first():
+        t = Tenant(name="ERPBase")
+        db.add(t)
+        db.commit()
+        db.refresh(t)
+
+        admin = User(username="admin@erp.com", password=hash_password("admin123"), role="Admin", tenant_id=t.id)
+        db.add(admin)
+        db.commit()
+        
+        # Pure initialization, strict removal of all demo products/customers.
+        db.add(CustomField(module="Customer", fieldname="industry", label="Industry Sector", fieldtype="Select", tenant_id=t.id))
+        db.commit()
+
+# Call seed
+initialize_system()
+
+# ─── MISSING DASHBOARD CHARTS & ACTIVITY ───
+@app.get("/api/dashboard/sales-chart")
+def get_sales_chart(user: User = Depends(get_current_user_token)):
+    return [{"month": "Jan", "value": 4000}, {"month": "Feb", "value": 3000}]
+
+@app.get("/api/dashboard/revenue-chart")
+def get_revenue_chart(user: User = Depends(get_current_user_token)):
+    return [{"month": "Jan", "value": 14000}, {"month": "Feb", "value": 23000}]
+
+@app.get("/api/dashboard/inventory-chart")
+def get_inventory_chart(user: User = Depends(get_current_user_token)):
+    return [{"name": "Smart Switches", "value": 40}, {"name": "Cameras", "value": 15}]
+
+@app.get("/api/dashboard/recent-activity")
+def get_recent_activity(user: User = Depends(get_current_user_token)):
+    return [{"text": "New lead registered from Website", "time": "2 mins ago"}]
+
+# ─── MISSING SALES ENDPOINTS ───
+@app.get("/api/sales/quotations")
+def get_quotations(user: User = Depends(get_current_user_token)):
+    return []
+
+@app.get("/api/sales/summary")
+def get_sales_summary(user: User = Depends(get_current_user_token)):
+    return {"total_invoiced": "₹0", "received": "₹0", "outstanding": "₹0"}
+
+# ─── MISSING SERVICE, AMC, INSTALLATION STUBS ───
+@app.get("/api/accounting/ledger")
+def get_ledger(user: User = Depends(get_current_user_token)): return []
+
 @app.get("/api/service/tickets")
-def get_service_tickets(user: User = Depends(get_current_user)):
-    return [{"ticket": "Ticket 1"}, {"ticket": "Ticket 2"}]
+def get_tickets(user: User = Depends(get_current_user_token)): return []
 
 @app.get("/api/service/summary")
-def service_summary(user: User = Depends(get_current_user)):
-    return {"open_tickets": 2, "closed_tickets": 0}
+def get_service_summary(user: User = Depends(get_current_user_token)):
+    return {"open": 0, "in_progress": 0, "resolved": 0, "closed": 0}
 
-# ---------- INSTALLATIONS ----------
+@app.get("/api/amc/contracts")
+def get_contracts(user: User = Depends(get_current_user_token)): return []
+
+@app.get("/api/amc/summary")
+def get_amc_summary(user: User = Depends(get_current_user_token)):
+    return {"active": 0, "renewal_due": 0, "expired": 0}
+
 @app.get("/api/installations/projects")
-def installations_projects(user: User = Depends(get_current_user)):
-    return [{"project": "Project 1"}, {"project": "Project 2"}]
+def get_projects(user: User = Depends(get_current_user_token)): return []
 
-# ---------- SEED FUNCTION ----------
-def seed():
-    db = SessionLocal()
-    try:
-        tenant = db.query(Tenant).filter_by(name="Suma Surveillance Tech Pvt. Ltd.").first()
-        if not tenant:
-            tenant = Tenant(name="Suma Surveillance Tech Pvt. Ltd.", domain="sumatech.in")
-            db.add(tenant)
-            db.commit()
-            db.refresh(tenant)
+# ─── COMPANY SETTINGS ───
+class CompanySettingsSchema(BaseModel):
+    company_name: str = "My Company"
+    gstin: str = ""
+    address: str = ""
+    phone: str = ""
+    email: str = ""
+    bank_name: str = ""
+    bank_account: str = ""
+    bank_ifsc: str = ""
+    bank_branch: str = ""
+    terms: str = ""
 
-        admin_user = db.query(User).filter_by(username="admin@sumatech.in").first()
-        if not admin_user:
-            admin_user = User(
-                username="admin@sumatech.in",
-                password=hash_password("admin123"),
-                role="admin",
-                tenant_id=tenant.id
-            )
-            db.add(admin_user)
-            db.commit()
-            db.refresh(admin_user)
-
-        # Seed default customer and employee only
-        if not db.query(Customer).filter(Customer.tenant_id == tenant.id).first():
-            db.add(Customer(name="Default Customer", tenant_id=tenant.id))
-        if not db.query(Employee).filter(Employee.tenant_id == tenant.id).first():
-            db.add(Employee(name="Default Employee", tenant_id=tenant.id))
-
+@app.get("/api/settings/company")
+def get_company_settings(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    s = db.query(CompanySettings).filter_by(tenant_id=user.tenant_id).first()
+    if not s:
+        s = CompanySettings(tenant_id=user.tenant_id)
+        db.add(s)
         db.commit()
-        print(f"Seed complete: tenant={tenant.name}, admin={admin_user.username}")
-    finally:
-        db.close()
+        db.refresh(s)
+    return s
 
-seed()
+@app.put("/api/settings/company")
+def save_company_settings(data: CompanySettingsSchema, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    if user.role != "Admin": raise HTTPException(403, "Admins only")
+    s = db.query(CompanySettings).filter_by(tenant_id=user.tenant_id).first()
+    if not s:
+        s = CompanySettings(tenant_id=user.tenant_id)
+        db.add(s)
+    for k, v in data.dict().items():
+        setattr(s, k, v)
+    db.commit()
+    db.refresh(s)
+    return s
+
+# ─── QUOTATIONS ───
+class QuotationCreateSchema(BaseModel):
+    customer: str
+    date: str
+    valid_till: str = ""
+    items: list = []
+    discount: float = 0.0
+    custom_data: dict = {}
+
+@app.get("/api/sales/quotations")
+def list_quotations(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(Quotation).filter(Quotation.tenant_id == user.tenant_id).all()
+
+@app.get("/api/sales/quotations/{q_id}")
+def get_quotation(q_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    q = db.query(Quotation).filter_by(id=q_id, tenant_id=user.tenant_id).first()
+    if not q: raise HTTPException(404, "Quotation not found")
+    items = db.query(QuotationItem).filter_by(quotation_id=q.id).all()
+    out_items = []
+    for i in items:
+        p = db.query(Product).filter_by(sku=i.item_code, tenant_id=user.tenant_id).first()
+        out_items.append({"item_code": i.item_code, "name": p.name if p else "Unknown", "qty": i.qty, "rate": i.rate, "disc_pct": i.disc_pct, "amount": i.amount})
+    cust = db.query(Customer).filter_by(company=q.customer, tenant_id=user.tenant_id).first()
+    return {"id": q.id, "customer": q.customer, "customer_name": q.customer, "date": q.date, "valid_till": q.valid_till, "status": q.status, "amount": q.amount, "grand_total": q.grand_total, "custom_data": q.custom_data, "items": out_items, "customer_contact": cust.contact if cust else "", "customer_address": cust.address if cust else "", "customer_gst": cust.gst if cust else ""}
+
+@app.post("/api/sales/quotations")
+def create_quotation(data: QuotationCreateSchema, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    q_id = f"QTN-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}"
+    total = sum([item.get("qty",0) * item.get("rate",0) for item in data.items])
+    disc = sum([item.get("qty",0)*item.get("rate",0)*(item.get("disc_pct",0)/100) for item in data.items])
+    taxable = max(total - disc, 0)
+    gst_rate = float(data.custom_data.get("gst_rate") or 0)
+    cgst = round(taxable*(gst_rate/2)/100, 2) if gst_rate else 0
+    grand = round(taxable + cgst*2, 2)
+    q = Quotation(id=q_id, customer=data.customer, date=data.date, valid_till=data.valid_till, amount=total, grand_total=grand, status=data.custom_data.get("status","Draft"), tenant_id=user.tenant_id, custom_data={"discount": disc, "gst_rate": gst_rate, "cgst": cgst, "sgst": cgst, "taxable": taxable, **data.custom_data})
+    db.add(q)
+    for i in data.items:
+        db.add(QuotationItem(quotation_id=q_id, item_code=i.get("item_code"), qty=i.get("qty",0), rate=i.get("rate",0), disc_pct=i.get("disc_pct",0), amount=i.get("qty",0)*i.get("rate",0)))
+    db.commit()
+    db.refresh(q)
+    return q
+
+@app.put("/api/sales/quotations/{q_id}")
+def update_quotation(q_id: str, data: QuotationCreateSchema, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    q = db.query(Quotation).filter_by(id=q_id, tenant_id=user.tenant_id).first()
+    if not q: raise HTTPException(404, "Quotation not found")
+    total = sum([item.get("qty",0)*item.get("rate",0) for item in data.items])
+    disc = sum([item.get("qty",0)*item.get("rate",0)*(item.get("disc_pct",0)/100) for item in data.items])
+    taxable = max(total-disc, 0)
+    gst_rate = float(data.custom_data.get("gst_rate") or 0)
+    cgst = round(taxable*(gst_rate/2)/100,2) if gst_rate else 0
+    q.customer=data.customer; q.date=data.date; q.valid_till=data.valid_till
+    q.amount=total; q.grand_total=round(taxable+cgst*2,2)
+    q.status=data.custom_data.get("status",q.status)
+    q.custom_data={"discount":disc,"gst_rate":gst_rate,"cgst":cgst,"sgst":cgst,"taxable":taxable,**data.custom_data}
+    db.query(QuotationItem).filter_by(quotation_id=q.id).delete()
+    for i in data.items:
+        db.add(QuotationItem(quotation_id=q_id, item_code=i.get("item_code"), qty=i.get("qty",0), rate=i.get("rate",0), disc_pct=i.get("disc_pct",0), amount=i.get("qty",0)*i.get("rate",0)))
+    db.commit(); db.refresh(q)
+    return q
+
+@app.delete("/api/sales/quotations/{q_id}")
+def delete_quotation(q_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    if user.role != "Admin": raise HTTPException(403, "Admins only")
+    q = db.query(Quotation).filter_by(id=q_id, tenant_id=user.tenant_id).first()
+    if not q: raise HTTPException(404)
+    db.query(QuotationItem).filter_by(quotation_id=q.id).delete()
+    db.delete(q); db.commit()
+    return {"status": "deleted"}

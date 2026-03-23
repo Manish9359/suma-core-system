@@ -2,9 +2,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Plus, Search, Filter } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { purchasingApi } from "@/lib/api";
+import { purchasingApi, inventoryApi } from "@/lib/api";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { LoadingState, ErrorState, EmptyState } from "@/components/LoadingState";
+import { RecordModal, RecordField } from "@/components/RecordModal";
+import { useState } from "react";
 
 const statusMap: Record<string, string> = {
   Ordered: "status-badge status-open",
@@ -13,7 +15,22 @@ const statusMap: Record<string, string> = {
 };
 
 export default function PurchasingPage() {
+  const [modalOpen, setModalOpen] = useState(false);
   const { data: orders, isLoading, error, refetch } = useApiQuery(["purchasing", "orders"], purchasingApi.getOrders);
+  const { data: products } = useApiQuery(["inventory", "products"], inventoryApi.getProducts);
+
+  const poFields: RecordField[] = [
+    { name: "vendor", label: "Supplier / Vendor", type: "text", required: true },
+    { name: "date", label: "PO Date", type: "date", required: true },
+    { 
+      name: "items", label: "Ordered Items", type: "table", required: true, 
+      columns: [
+        { name: "item_code", label: "Item", type: "select", options: products?.map((p: any) => ({ label: p.name, value: p.sku })) || [] },
+        { name: "qty", label: "Quantity", type: "number" },
+        { name: "rate", label: "Unit Price", type: "number" }
+      ]
+    }
+  ];
 
   if (isLoading) return <div className="module-page"><LoadingState message="Loading orders..." /></div>;
   if (error) return <div className="module-page"><ErrorState message="Failed to load purchase orders" onRetry={refetch} /></div>;
@@ -25,7 +42,7 @@ export default function PurchasingPage() {
           <h1 className="page-title">Purchasing</h1>
           <p className="text-sm text-muted-foreground">Vendors, purchase orders, and deliveries</p>
         </div>
-        <Button className="gap-2 bg-gradient-to-r from-accent to-accent/80 shadow-lg shadow-accent/20"><Plus className="h-4 w-4" />New Purchase Order</Button>
+        <Button onClick={() => setModalOpen(true)} className="gap-2 bg-gradient-to-r from-accent to-accent/80 shadow-lg shadow-accent/20"><Plus className="h-4 w-4" />New Purchase Order</Button>
       </div>
 
       <div className="flex items-center gap-3">
@@ -57,6 +74,17 @@ export default function PurchasingPage() {
         </CardContent>
       </Card>
       )}
+
+      <RecordModal
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        title="Create Purchase Order"
+        fields={poFields}
+        onSubmit={async (data) => {
+          await purchasingApi.createOrder(data);
+          refetch();
+        }}
+      />
     </div>
   );
 }

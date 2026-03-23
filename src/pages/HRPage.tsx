@@ -5,8 +5,11 @@ import { Badge } from "@/components/ui/badge";
 import { hrApi } from "@/lib/api";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { LoadingState, ErrorState, EmptyState } from "@/components/LoadingState";
+import { RecordModal, RecordField } from "@/components/RecordModal";
+import { useState } from "react";
 
 export default function HRPage() {
+  const [modalOpen, setModalOpen] = useState(false);
   const { data: employees, isLoading, error, refetch } = useApiQuery(["hr", "employees"], hrApi.getEmployees);
   const { data: summary } = useApiQuery(["hr", "summary"], hrApi.getSummary);
 
@@ -20,7 +23,7 @@ export default function HRPage() {
           <h1 className="page-title">HR & Payroll</h1>
           <p className="text-sm text-muted-foreground">Employee management, attendance, and payroll</p>
         </div>
-        <Button className="gap-2 bg-gradient-to-r from-accent to-accent/80 shadow-lg shadow-accent/20"><Plus className="h-4 w-4" />Add Employee</Button>
+        <Button onClick={() => setModalOpen(true)} className="gap-2 bg-gradient-to-r from-accent to-accent/80 shadow-lg shadow-accent/20"><Plus className="h-4 w-4" />Add Employee</Button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
@@ -52,6 +55,23 @@ export default function HRPage() {
         </CardContent>
       </Card>
       )}
+
+      <RecordModal
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        title="Add New Employee"
+        fields={[
+          { name: "name", label: "Full Name", type: "text", required: true },
+          { name: "role", label: "Designation/Role", type: "text", required: true },
+          { name: "dept", label: "Department", type: "select", options: ["Engineering", "Sales", "Support", "HR", "Management"] },
+          { name: "salary", label: "Salary (₹)", type: "number", required: true },
+          { name: "joining", label: "Joining Date", type: "date", required: true }
+        ]}
+        onSubmit={async (data) => {
+          await hrApi.createEmployee(data);
+          refetch();
+        }}
+      />
     </div>
   );
 }
