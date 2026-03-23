@@ -72,8 +72,14 @@ class Invoice(Base):
 class Product(Base):
     __tablename__ = "products"
     id = Column(Integer, primary_key=True)
-    name = Column(String)
-    quantity = Column(Float, default=0)
+    sku = Column(String, unique=True, nullable=False)
+    name = Column(String, nullable=False)
+    brand = Column(String, nullable=True)
+    category = Column(String, nullable=True)
+    cost = Column(Float, default=0.0)
+    sell_price = Column(Float, default=0.0)
+    stock = Column(Float, default=0.0)
+    warehouse = Column(String, nullable=True)
     tenant_id = Column(Integer, ForeignKey("tenants.id"), nullable=False)
 
 class Employee(Base):
@@ -102,8 +108,28 @@ class InvoiceCreate(BaseModel):
     amount: float
 
 class ProductCreate(BaseModel):
+    sku: str
     name: str
-    quantity: float
+    brand: Optional[str] = None
+    category: Optional[str] = None
+    cost: float
+    sell_price: float
+    stock: float
+    warehouse: Optional[str] = None
+
+class ProductResponse(BaseModel):
+    id: int
+    sku: str
+    name: str
+    brand: Optional[str]
+    category: Optional[str]
+    cost: float
+    sell_price: float
+    stock: float
+    warehouse: Optional[str]
+
+    class Config:
+        orm_mode = True
 
 class EmployeeCreate(BaseModel):
     name: str
@@ -173,7 +199,7 @@ def dashboard_revenue_chart(user: User = Depends(get_current_user), db: Session 
 @app.get("/api/dashboard/inventory-chart")
 def dashboard_inventory_chart(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     products = db.query(Product).filter(Product.tenant_id == user.tenant_id).all()
-    return [{"product": p.name, "quantity": p.quantity} for p in products]
+    return [{"product": p.name, "quantity": p.stock} for p in products]
 
 @app.get("/api/dashboard/recent-activity")
 def dashboard_recent_activity(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -217,13 +243,26 @@ def create_invoice(data: InvoiceCreate, user: User = Depends(get_current_user), 
     return invoice
 
 # ---------- INVENTORY ----------
-@app.get("/api/inventory/products")
+@app.get("/api/inventory/products", response_model=List[ProductResponse])
 def get_products(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return db.query(Product).filter(Product.tenant_id == user.tenant_id).all()
 
-@app.post("/api/inventory/products")
+@app.post("/api/inventory/products", response_model=ProductResponse)
 def create_product(data: ProductCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    product = Product(name=data.name, quantity=data.quantity, tenant_id=user.tenant_id)
+    existing = db.query(Product).filter(Product.sku == data.sku, Product.tenant_id == user.tenant_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Product with this SKU already exists")
+    product = Product(
+        sku=data.sku,
+        name=data.name,
+        brand=data.brand,
+        category=data.category,
+        cost=data.cost,
+        sell_price=data.sell_price,
+        stock=data.stock,
+        warehouse=data.warehouse,
+        tenant_id=user.tenant_id
+    )
     db.add(product)
     db.commit()
     db.refresh(product)
@@ -232,7 +271,7 @@ def create_product(data: ProductCreate, user: User = Depends(get_current_user), 
 @app.get("/api/inventory/summary")
 def inventory_summary(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     total_products = db.query(Product).filter(Product.tenant_id == user.tenant_id).count()
-    total_quantity = db.query(func.sum(Product.quantity)).filter(Product.tenant_id == user.tenant_id).scalar() or 0
+    total_quantity = db.query(func.sum(Product.stock)).filter(Product.tenant_id == user.tenant_id).scalar() or 0
     return {"total_products": total_products, "total_quantity": total_quantity}
 
 # ---------- PURCHASING ----------
@@ -291,6 +330,7 @@ def seed():
             db.add(tenant)
             db.commit()
             db.refresh(tenant)
+
         admin_user = db.query(User).filter_by(username="admin@sumatech.in").first()
         if not admin_user:
             admin_user = User(
@@ -302,13 +342,13 @@ def seed():
             db.add(admin_user)
             db.commit()
             db.refresh(admin_user)
-        # Seed default products/customers/employees
+
+        # Seed default customer and employee only
         if not db.query(Customer).filter(Customer.tenant_id == tenant.id).first():
             db.add(Customer(name="Default Customer", tenant_id=tenant.id))
-        if not db.query(Product).filter(Product.tenant_id == tenant.id).first():
-            db.add(Product(name="Default Product", quantity=100, tenant_id=tenant.id))
         if not db.query(Employee).filter(Employee.tenant_id == tenant.id).first():
             db.add(Employee(name="Default Employee", tenant_id=tenant.id))
+
         db.commit()
         print(f"Seed complete: tenant={tenant.name}, admin={admin_user.username}")
     finally:

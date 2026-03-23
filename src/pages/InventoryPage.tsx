@@ -43,32 +43,32 @@ export default function InventoryPage() {
       </div>
 
       {!products || products.length === 0 ? <EmptyState title="No products yet" description="Add your first product to get started" /> : (
-      <Card className="border-none shadow-md overflow-hidden">
-        <CardContent className="p-0">
-          <table className="data-table">
-            <thead className="bg-muted/50"><tr><th>SKU</th><th>Product</th><th>Brand</th><th>Category</th><th>Cost</th><th>Sell</th><th>Stock</th><th>Warehouse</th></tr></thead>
-            <tbody>
-              {products.map((p) => (
-                <tr key={p.sku} className="hover:bg-accent/5 transition-colors">
-                  <td className="font-mono text-xs">{p.sku}</td>
-                  <td className="font-medium">{p.name}</td>
-                  <td>{p.brand}</td>
-                  <td><Badge variant="secondary">{p.category}</Badge></td>
-                  <td>{p.cost}</td>
-                  <td className="font-semibold">{p.sell}</td>
-                  <td>
-                    <span className={p.low ? "text-warning font-semibold" : ""}>
-                      {p.low && <AlertTriangle className="inline h-3 w-3 mr-1" />}
-                      {p.stock}
-                    </span>
-                  </td>
-                  <td>{p.warehouse}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </CardContent>
-      </Card>
+        <Card className="border-none shadow-md overflow-hidden">
+          <CardContent className="p-0">
+            <table className="data-table">
+              <thead className="bg-muted/50"><tr><th>SKU</th><th>Product</th><th>Brand</th><th>Category</th><th>Cost</th><th>Sell</th><th>Stock</th><th>Warehouse</th></tr></thead>
+              <tbody>
+                {products.map((p) => (
+                  <tr key={p.sku} className="hover:bg-accent/5 transition-colors">
+                    <td className="font-mono text-xs">{p.sku}</td>
+                    <td className="font-medium">{p.name}</td>
+                    <td>{p.brand}</td>
+                    <td><Badge variant="secondary">{p.category}</Badge></td>
+                    <td>{p.cost}</td>
+                    <td className="font-semibold">{p.sell_price}</td>
+                    <td>
+                      <span className={p.low ? "text-warning font-semibold" : ""}>
+                        {p.low && <AlertTriangle className="inline h-3 w-3 mr-1" />}
+                        {p.stock}
+                      </span>
+                    </td>
+                    <td>{p.warehouse}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
