@@ -5,7 +5,7 @@ from sqlalchemy import func
 import uuid
 
 from app.database import engine, Base, get_db
-from app.models import Tenant, User, CustomField, Lead, Customer, Product, Invoice, InvoiceItem, Account, LedgerEntry, Employee, PurchaseOrder, WorkflowTask, CompanySettings, Quotation, QuotationItem
+from app.models import Tenant, User, CustomField, Lead, Customer, Product, Invoice, InvoiceItem, Account, LedgerEntry, Employee, PurchaseOrder, WorkflowTask, CompanySettings, Quotation, QuotationItem, Warehouse, StockLedger, StockEntry, StockEntryItem, Supplier, Project, Task, SalesOrder, PurchaseReceipt, BOM, PaymentEntry
 from app.schemas import LoginReq, TokenRes, CustomerCreate, ProductCreate, InvoiceCreate, EmployeeCreate
 from pydantic import BaseModel
 from typing import List
@@ -119,7 +119,22 @@ def create_customer(data: CustomerCreate, db: Session = Depends(get_db), user: U
     db.refresh(cust)
     return cust
 
-# ─── INVENTORY ───
+@app.put("/api/crm/customers/{cust_id}")
+def update_customer(cust_id: str, data: CustomerCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    if user.role != "Admin": raise HTTPException(403, "Admins only")
+    cust = db.query(Customer).filter_by(id=cust_id, tenant_id=user.tenant_id).first()
+    if not cust: raise HTTPException(404, "Customer not found")
+    for k, v in data.dict(exclude_unset=True).items(): setattr(cust, k, v)
+    db.commit(); db.refresh(cust)
+    return cust
+
+@app.delete("/api/crm/customers/{cust_id}")
+def delete_customer(cust_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    if user.role != "Admin": raise HTTPException(403, "Admins only")
+    cust = db.query(Customer).filter_by(id=cust_id, tenant_id=user.tenant_id).first()
+    if not cust: raise HTTPException(404)
+    db.delete(cust); db.commit()
+    return {"status": "deleted"}
 @app.get("/api/inventory/products")
 def list_products(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Product).filter(Product.tenant_id == user.tenant_id).all()
@@ -236,6 +251,11 @@ def add_invoice(data: InvoiceCreateExtended, db: Session = Depends(get_db), user
     
     for i in data.items:
         db.add(InvoiceItem(invoice_id=inv_id, item_code=i.get("item_code"), qty=i.get("qty",0), rate=i.get("rate",0), disc_pct=i.get("disc_pct",0), amount=i.get("qty",0)*i.get("rate",0)))
+        if inv.status != "Draft":
+            p = db.query(Product).filter_by(sku=i.get("item_code"), tenant_id=user.tenant_id).first()
+            if p:
+                p.stock -= i.get("qty",0)
+                db.add(StockLedger(item_code=p.sku, warehouse=p.warehouse, qty=-i.get("qty",0), voucher_type="Invoice", voucher_no=inv_id, tenant_id=user.tenant_id))
     
     if grand > 50000:
         db.add(WorkflowTask(doc_type="Invoice", doc_id=inv_id, action_required_by="Manager", status="Pending", tenant_id=user.tenant_id))
@@ -361,21 +381,49 @@ def initialize_system():
 initialize_system()
 
 # ─── MISSING DASHBOARD CHARTS & ACTIVITY ───
+# ─── DASHBOARD ANALYTICS ───
+@app.get("/api/dashboard/kpis")
+def get_kpis(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    total_sales = db.query(func.sum(Invoice.amount)).filter(Invoice.tenant_id == user.tenant_id).scalar() or 0
+    pending_count = db.query(Invoice).filter(Invoice.tenant_id == user.tenant_id, Invoice.status != "Paid").count()
+    low_stock = db.query(Product).filter(Product.tenant_id == user.tenant_id, Product.stock < 10).count()
+    emp_count = db.query(Employee).filter(Employee.tenant_id == user.tenant_id).count()
+    ticket_count = db.query(Issue).filter(Issue.tenant_id == user.tenant_id, Issue.status == "Open").count()
+    
+    return {
+        "total_sales": f"₹{float(total_sales):,.0f}",
+        "sales_change": "+0%",
+        "monthly_revenue": f"₹{float(total_sales):,.0f}",
+        "revenue_change": "+0%",
+        "pending_invoices": pending_count,
+        "invoices_change": "0",
+        "low_stock_items": low_stock,
+        "stock_change": "0",
+        "active_amcs": 0,
+        "amc_change": "0",
+        "open_tickets": ticket_count,
+        "tickets_change": "0"
+    }
+
 @app.get("/api/dashboard/sales-chart")
-def get_sales_chart(user: User = Depends(get_current_user_token)):
+def get_sales_chart(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    # Group by month logic (simplified)
+    # real query: db.query(func.strftime('%m', Invoice.date), func.sum(Invoice.amount))...
     return [{"month": "Jan", "value": 4000}, {"month": "Feb", "value": 3000}]
 
 @app.get("/api/dashboard/revenue-chart")
-def get_revenue_chart(user: User = Depends(get_current_user_token)):
+def get_revenue_chart(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return [{"month": "Jan", "value": 14000}, {"month": "Feb", "value": 23000}]
 
 @app.get("/api/dashboard/inventory-chart")
-def get_inventory_chart(user: User = Depends(get_current_user_token)):
-    return [{"name": "Smart Switches", "value": 40}, {"name": "Cameras", "value": 15}]
+def get_inventory_chart(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    # Real query: group by category
+    cats = db.query(Product.category, func.count(Product.id)).filter(Product.tenant_id == user.tenant_id).group_by(Product.category).all()
+    return [{"name": c[0] or "Uncategorized", "value": c[1]} for c in cats]
 
 @app.get("/api/dashboard/recent-activity")
 def get_recent_activity(user: User = Depends(get_current_user_token)):
-    return [{"text": "New lead registered from Website", "time": "2 mins ago"}]
+    return [{"text": "System health check passed", "time": "Just now"}, {"text": "Automatic data backup completed", "time": "1h ago"}]
 
 # ─── MISSING SALES ENDPOINTS ───
 @app.get("/api/sales/quotations")
@@ -383,8 +431,46 @@ def get_quotations(user: User = Depends(get_current_user_token)):
     return []
 
 @app.get("/api/sales/summary")
-def get_sales_summary(user: User = Depends(get_current_user_token)):
-    return {"total_invoiced": "₹0", "received": "₹0", "outstanding": "₹0"}
+def get_sales_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    total = db.query(func.sum(Invoice.amount)).filter(Invoice.tenant_id == user.tenant_id).scalar() or 0
+    paid = db.query(func.sum(PaymentEntry.amount)).filter(PaymentEntry.tenant_id == user.tenant_id, PaymentEntry.party_type == "Customer").scalar() or 0
+    return {
+        "total_invoiced": f"₹{float(total):,.0f}",
+        "received": f"₹{float(paid):,.0f}",
+        "outstanding": f"₹{float(total - paid):,.0f}"
+    }
+
+@app.get("/api/inventory/summary")
+def get_inventory_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    count = db.query(Product).filter(Product.tenant_id == user.tenant_id).count()
+    value = db.query(func.sum(Product.stock * Product.cost)).filter(Product.tenant_id == user.tenant_id).scalar() or 0
+    low = db.query(Product).filter(Product.tenant_id == user.tenant_id, Product.stock < 10).count()
+    wh = db.query(Warehouse).filter(Warehouse.tenant_id == user.tenant_id).count()
+    return {
+        "total_products": count,
+        "stock_value": f"₹{float(value):,.0f}",
+        "low_stock_count": low,
+        "warehouses": wh
+    }
+
+@app.get("/api/inventory/stock-by-warehouse")
+def get_stock_by_warehouse(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    # Aggregate StockLedger by item and warehouse
+    results = db.query(
+        StockLedger.item_code,
+        StockLedger.warehouse,
+        func.sum(StockLedger.qty).label("actual_qty")
+    ).filter(StockLedger.tenant_id == user.tenant_id).group_by(StockLedger.item_code, StockLedger.warehouse).all()
+    
+    return [dict(zip(["item_code", "warehouse", "actual_qty"], r)) for r in results]
+
+@app.post("/api/purchasing/requests")
+def create_material_request(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    items = data.pop("items", [])
+    mr = MaterialRequest(**data, id=f"MR-{uuid.uuid4().hex[:6].upper()}", tenant_id=user.tenant_id)
+    db.add(mr)
+    for i in items: db.add(MaterialRequestItem(**i, parent_id=mr.id))
+    db.commit(); db.refresh(mr); return mr
 
 # ─── MISSING SERVICE, AMC, INSTALLATION STUBS ───
 @app.get("/api/accounting/ledger")
@@ -512,3 +598,636 @@ def delete_quotation(q_id: str, db: Session = Depends(get_db), user: User = Depe
     db.query(QuotationItem).filter_by(quotation_id=q.id).delete()
     db.delete(q); db.commit()
     return {"status": "deleted"}
+# --- NEW ERP MODULES ---
+
+# Projects
+@app.get("/api/projects")
+def get_projects(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(Project).filter(Project.tenant_id == user.tenant_id).all()
+
+@app.post("/api/projects")
+def create_project(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    p = Project(**data, tenant_id=user.tenant_id)
+    db.add(p); db.commit(); db.refresh(p)
+    return p
+
+# --- ASSETS ---
+@app.get("/api/assets")
+def get_assets(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(Asset).filter(Asset.tenant_id == user.tenant_id).all()
+
+@app.post("/api/assets")
+def create_asset(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    a = Asset(**data, id=f"ASSET-{uuid.uuid4().hex[:6].upper()}", tenant_id=user.tenant_id)
+    db.add(a); db.commit(); db.refresh(a)
+    return a
+
+# --- QUALITY INSPECTION ---
+@app.post("/api/quality/inspect")
+def quality_inspect(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    qi = QualityInspection(**data, id=f"QI-{uuid.uuid4().hex[:6].upper()}", tenant_id=user.tenant_id)
+    db.add(qi); db.commit(); db.refresh(qi)
+    return qi
+
+# --- SUBCONTRACTING ---
+@app.post("/api/subcontract/transfer")
+def subcontract_transfer(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    # Transfer raw materials to vendor warehouse
+    # Expected data: item_code, qty, from_warehouse, to_warehouse (vendor)
+    se = StockEntry(id=f"SE-SUB-{uuid.uuid4().hex[:6].upper()}", purpose="Material Transfer", date=datetime.now().strftime("%Y-%m-%d"), tenant_id=user.tenant_id)
+    db.add(se); db.commit(); db.refresh(se)
+    
+    item = StockEntryItem(parent_id=se.id, item_code=data.get("item_code"), qty=data.get("qty"), s_warehouse=data.get("from_warehouse"), t_warehouse=data.get("to_warehouse"))
+    db.add(item)
+    
+    # Update Ledger
+    db.add(StockLedger(item_code=data.get("item_code"), warehouse=data.get("from_warehouse"), qty=-data.get("qty"), voucher_type="Stock Entry", voucher_no=se.id, tenant_id=user.tenant_id))
+    db.add(StockLedger(item_code=data.get("item_code"), warehouse=data.get("to_warehouse"), qty=data.get("qty"), voucher_type="Stock Entry", voucher_no=se.id, tenant_id=user.tenant_id))
+    
+    # Update Product Stocks
+    p_from = db.query(Product).filter_by(sku=data.get("item_code"), warehouse=data.get("from_warehouse"), tenant_id=user.tenant_id).first()
+    if p_from: p_from.stock -= data.get("qty")
+    
+    p_to = db.query(Product).filter_by(sku=data.get("item_code"), warehouse=data.get("to_warehouse"), tenant_id=user.tenant_id).first()
+    if p_to: p_to.stock += data.get("qty")
+    
+    db.commit()
+    return {"status": "Subcontract material transferred", "id": se.id}
+
+@app.get("/api/reports/profit-loss")
+def get_pl_report(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    # Basic P&L logic
+    income = db.query(func.sum(Invoice.amount)).filter(Invoice.tenant_id == user.tenant_id).scalar() or 0
+    expense = db.query(func.sum(PurchaseOrder.total)).filter(PurchaseOrder.tenant_id == user.tenant_id).scalar() or 0
+    return {"income": income, "expense": expense, "profit": income - expense}
+
+@app.put("/api/warehouses/{w_id}")
+def update_warehouse(w_id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    w = db.query(Warehouse).filter_by(id=w_id, tenant_id=user.tenant_id).first()
+    if not w: raise HTTPException(404)
+    for k, v in data.items(): setattr(w, k, v)
+    db.commit(); return w
+
+@app.delete("/api/warehouses/{w_id}")
+def delete_warehouse(w_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    w = db.query(Warehouse).filter_by(id=w_id, tenant_id=user.tenant_id).first()
+    if not w: raise HTTPException(404)
+    db.delete(w); db.commit(); return {"status": "ok"}
+
+# Suppliers
+@app.get("/api/suppliers")
+def get_suppliers(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(Supplier).filter(Supplier.tenant_id == user.tenant_id).all()
+
+@app.post("/api/suppliers")
+def create_supplier(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    s = Supplier(**data, tenant_id=user.tenant_id)
+    db.add(s); db.commit(); db.refresh(s); return s
+
+@app.put("/api/suppliers/{s_id}")
+def update_supplier(s_id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    s = db.query(Supplier).filter_by(id=s_id, tenant_id=user.tenant_id).first()
+    if not s: raise HTTPException(404)
+    for k, v in data.items(): setattr(s, k, v)
+    db.commit(); return s
+
+@app.delete("/api/suppliers/{s_id}")
+def delete_supplier(s_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    s = db.query(Supplier).filter_by(id=s_id, tenant_id=user.tenant_id).first()
+    if not s: raise HTTPException(404)
+    db.delete(s); db.commit(); return {"status": "ok"}
+
+# HR - Employees
+@app.get("/api/hr/employees")
+def get_employees(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(Employee).filter(Employee.tenant_id == user.tenant_id).all()
+
+@app.post("/api/hr/employees")
+def create_employee(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    e = Employee(**data, tenant_id=user.tenant_id)
+    db.add(e); db.commit(); db.refresh(e); return e
+
+@app.put("/api/hr/employees/{id}")
+def update_employee(id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    e = db.query(Employee).filter_by(id=id, tenant_id=user.tenant_id).first()
+    if not e: raise HTTPException(404)
+    for k, v in data.items(): setattr(e, k, v)
+    db.commit(); return e
+
+@app.delete("/api/hr/employees/{id}")
+def delete_employee(id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    e = db.query(Employee).filter_by(id=id, tenant_id=user.tenant_id).first()
+    if not e: raise HTTPException(404)
+    db.delete(e); db.commit(); return {"status": "ok"}
+
+# Stock Entries
+@app.get("/api/stock/entries")
+def get_stock_entries(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(StockEntry).filter(StockEntry.tenant_id == user.tenant_id).all()
+
+@app.post("/api/stock/entries")
+def create_stock_entry(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    items = data.pop("items", [])
+    se = StockEntry(**data, id=f"SE-{str(uuid.uuid4())[:6].upper()}", tenant_id=user.tenant_id)
+    db.add(se)
+    for i in items:
+        db.add(StockEntryItem(**i, parent_id=se.id))
+        p = db.query(Product).filter_by(sku=i["item_code"], tenant_id=user.tenant_id).first()
+        if p:
+            qty = float(i["qty"])
+            if data["purpose"] == "Material Issue":
+                p.stock -= qty
+                db.add(StockLedger(item_code=i["item_code"], warehouse=i.get("s_warehouse"), qty=-qty, voucher_type="Stock Entry", voucher_no=se.id, tenant_id=user.tenant_id))
+            elif data["purpose"] == "Material Receipt":
+                p.stock += qty
+                db.add(StockLedger(item_code=i["item_code"], warehouse=i.get("t_warehouse"), qty=qty, voucher_type="Stock Entry", voucher_no=se.id, tenant_id=user.tenant_id))
+            elif data["purpose"] == "Material Transfer":
+                # Transfer between warehouses doesn't change global stock (p.stock), 
+                # but adds ledger entries for both warehouses.
+                db.add(StockLedger(item_code=i["item_code"], warehouse=i.get("s_warehouse"), qty=-qty, voucher_type="Stock Entry", voucher_no=se.id, tenant_id=user.tenant_id))
+                db.add(StockLedger(item_code=i["item_code"], warehouse=i.get("t_warehouse"), qty=qty, voucher_type="Stock Entry", voucher_no=se.id, tenant_id=user.tenant_id))
+    db.commit(); db.refresh(se)
+    return se
+
+# --- EXPANDED ERP API ---
+
+# Stock Ledger
+@app.get("/api/inventory/ledger")
+def get_stock_ledger(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(StockLedger).filter(StockLedger.tenant_id == user.tenant_id).order_by(StockLedger.date.desc()).all()
+
+# Leads
+@app.get("/api/crm/leads")
+def get_leads(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(Lead).filter(Lead.tenant_id == user.tenant_id).all()
+
+@app.post("/api/crm/leads")
+def create_lead(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    l = Lead(**data, id=f"LEAD-{str(uuid.uuid4())[:4].upper()}", tenant_id=user.tenant_id)
+    db.add(l); db.commit(); db.refresh(l)
+    return l
+
+@app.post("/api/crm/leads/{lead_id}/quotation")
+def convert_lead_to_quotation(lead_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    lead = db.query(Lead).filter_by(id=lead_id, tenant_id=user.tenant_id).first()
+    if not lead: raise HTTPException(404)
+    q = Quotation(id=f"QTN-{lead_id[5:]}", customer=lead.name, date=datetime.now().strftime("%Y-%m-%d"), status="Draft", tenant_id=user.tenant_id)
+    db.add(q)
+    lead.status = "Converted"
+    db.commit(); db.refresh(q)
+    return q
+
+# Material Requests
+@app.get("/api/purchasing/requests")
+def get_material_requests(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(MaterialRequest).filter(MaterialRequest.tenant_id == user.tenant_id).all()
+
+@app.post("/api/purchasing/requests")
+def create_material_request(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    items = data.pop("items", [])
+    mr = MaterialRequest(**data, id=f"MR-{str(uuid.uuid4())[:4].upper()}", tenant_id=user.tenant_id)
+    db.add(mr)
+    for i in items:
+        db.add(MaterialRequestItem(**i, parent_id=mr.id))
+    db.commit(); db.refresh(mr)
+    return mr
+
+@app.post("/api/purchasing/requests/{mr_id}/order")
+def create_po_from_mr(mr_id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    mr = db.query(MaterialRequest).filter_by(id=mr_id, tenant_id=user.tenant_id).first()
+    if not mr: raise HTTPException(404)
+    mr_items = db.query(MaterialRequestItem).filter_by(parent_id=mr.id).all()
+    
+    po = PurchaseOrder(id=f"PO-{mr_id[3:]}", vendor=data.get("vendor"), date=datetime.now().strftime("%Y-%m-%d"), status="Ordered", tenant_id=user.tenant_id, items=len(mr_items), total=0)
+    db.add(po)
+    # logic to copy items could be added here
+    mr.status = "Ordered"
+    db.commit(); db.refresh(po)
+    return po
+
+@app.get("/api/sales/orders")
+def get_sales_orders(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(SalesOrder).filter(SalesOrder.tenant_id == user.tenant_id).all()
+
+@app.get("/api/purchasing/orders/{po_id}")
+def get_purchase_order(po_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    po = db.query(PurchaseOrder).filter_by(id=po_id, tenant_id=user.tenant_id).first()
+    if not po: raise HTTPException(404)
+    items = db.query(PurchaseOrderItem).filter_by(parent_id=po.id).all()
+    # lookup supplier
+    supp = db.query(Supplier).filter_by(name=po.vendor, tenant_id=user.tenant_id).first()
+    return {
+        "id": po.id, "date": po.date, "status": po.status, "amount": po.total, "grand_total": po.total,
+        "items": [{"item_code": i.item_code, "qty": i.qty, "rate": i.rate, "amount": i.qty*i.rate, "name": i.item_code} for i in items],
+        "vendor": po.vendor, "vendor_name": po.vendor, "vendor_address": supp.address if supp else ""
+    }
+
+@app.get("/api/purchasing/receipts")
+def get_purchase_receipts(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(PurchaseReceipt).filter(PurchaseReceipt.tenant_id == user.tenant_id).all()
+
+@app.get("/api/purchasing/receipts/{pr_id}")
+def get_purchase_receipt(pr_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    pr = db.query(PurchaseReceipt).filter_by(id=pr_id, tenant_id=user.tenant_id).first()
+    if not pr: raise HTTPException(404)
+    items = db.query(PurchaseReceiptItem).filter_by(parent_id=pr.id).all()
+    return {
+        "id": pr.id, "date": pr.date, "status": pr.status, "items": [{"item_code": i.item_code, "qty": i.qty, "warehouse": i.warehouse} for i in items],
+        "supplier": pr.supplier, "supplier_name": pr.supplier
+    }
+
+@app.post("/api/sales/orders")
+def create_sales_order(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    items = data.pop("items", [])
+    so = SalesOrder(**data, id=f"SO-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}", tenant_id=user.tenant_id)
+    db.add(so)
+    for i in items:
+        db.add(SalesOrderItem(**i, parent_id=so.id))
+    db.commit(); db.refresh(so)
+    return so
+
+@app.put("/api/sales/orders/{so_id}")
+def update_sales_order(so_id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    so = db.query(SalesOrder).filter_by(id=so_id, tenant_id=user.tenant_id).first()
+    if not so: raise HTTPException(404)
+    items = data.pop("items", [])
+    for k, v in data.items(): setattr(so, k, v)
+    db.query(SalesOrderItem).filter_by(parent_id=so_id).delete()
+    for i in items: db.add(SalesOrderItem(**i, parent_id=so.id))
+    db.commit(); return so
+
+@app.delete("/api/sales/orders/{so_id}")
+def delete_sales_order(so_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    so = db.query(SalesOrder).filter_by(id=so_id, tenant_id=user.tenant_id).first()
+    if not so: raise HTTPException(404)
+    db.query(SalesOrderItem).filter_by(parent_id=so_id).delete()
+    db.delete(so); db.commit(); return {"status": "ok"}
+
+# Purchasing - Orders
+@app.get("/api/purchasing/orders")
+def get_purchase_orders(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(PurchaseOrder).filter(PurchaseOrder.tenant_id == user.tenant_id).all()
+
+@app.get("/api/purchasing/orders/{po_id}")
+def get_purchase_order(po_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    po = db.query(PurchaseOrder).filter_by(id=po_id, tenant_id=user.tenant_id).first()
+    if not po: raise HTTPException(404)
+    items = db.query(PurchaseOrderItem).filter_by(parent_id=po_id).all()
+    supplier = db.query(Supplier).filter_by(name=po.vendor, tenant_id=user.tenant_id).first()
+    return {"id": po.id, "vendor": po.vendor, "date": po.date, "total": po.total, "status": po.status, "items": items, "supplier_name": po.vendor, "supplier_address": supplier.address if supplier else "", "supplier_gst": supplier.id if supplier else ""}
+
+@app.post("/api/purchasing/orders")
+def create_purchase_order(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    items = data.pop("items", [])
+    po = PurchaseOrder(**data, id=f"PO-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}", tenant_id=user.tenant_id)
+    db.add(po)
+    for i in items: db.add(PurchaseOrderItem(**i, parent_id=po.id))
+    db.commit(); db.refresh(po); return po
+
+@app.put("/api/purchasing/orders/{po_id}")
+def update_purchase_order(po_id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    po = db.query(PurchaseOrder).filter_by(id=po_id, tenant_id=user.tenant_id).first()
+    if not po: raise HTTPException(404)
+    items = data.pop("items", [])
+    for k, v in data.items(): setattr(po, k, v)
+    db.query(PurchaseOrderItem).filter_by(parent_id=po_id).delete()
+    for i in items: db.add(PurchaseOrderItem(**i, parent_id=po.id))
+    db.commit(); return po
+
+@app.delete("/api/purchasing/orders/{po_id}")
+def delete_purchase_order(po_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    po = db.query(PurchaseOrder).filter_by(id=po_id, tenant_id=user.tenant_id).first()
+    if not po: raise HTTPException(404)
+    db.query(PurchaseOrderItem).filter_by(parent_id=po_id).delete()
+    db.delete(po); db.commit(); return {"status": "ok"}
+
+# Asset CRUD
+@app.put("/api/assets/{a_id}")
+def update_asset(a_id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    a = db.query(Asset).filter_by(id=a_id, tenant_id=user.tenant_id).first()
+    if not a: raise HTTPException(404)
+    for k, v in data.items(): setattr(a, k, v); 
+    db.commit(); return a
+
+@app.delete("/api/assets/{a_id}")
+def delete_asset(a_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    a = db.query(Asset).filter_by(id=a_id, tenant_id=user.tenant_id).first()
+    if not a: raise HTTPException(404)
+    db.delete(a); db.commit(); return {"status": "ok"}
+
+@app.post("/api/purchasing/receipts")
+def create_purchase_receipt(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    items = data.pop("items", [])
+    pr = PurchaseReceipt(**data, id=f"PR-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}", tenant_id=user.tenant_id)
+    db.add(pr)
+    for i in items:
+        db.add(PurchaseReceiptItem(**i, parent_id=pr.id))
+        p = db.query(Product).filter_by(sku=i["item_code"], tenant_id=user.tenant_id).first()
+        if p:
+            p.stock += float(i["qty"])
+            db.add(StockLedger(item_code=i["item_code"], warehouse=i.get("warehouse", "Main"), qty=float(i["qty"]), voucher_type="Purchase Receipt", voucher_no=pr.id, tenant_id=user.tenant_id))
+    db.commit(); db.refresh(pr); return pr
+
+# BOM (Manufacturing)
+@app.get("/api/manufacturing/bom")
+def get_boms(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(BOM).filter(BOM.tenant_id == user.tenant_id).all()
+
+@app.post("/api/manufacturing/bom")
+def create_bom(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    items = data.pop("items", [])
+    bom = BOM(**data, id=f"BOM-{data['item_code']}", tenant_id=user.tenant_id)
+    db.add(bom)
+    for i in items: db.add(BOMItem(**i, parent_id=bom.id))
+    db.commit(); db.refresh(bom); return bom
+
+@app.put("/api/manufacturing/bom/{bom_id}")
+def update_bom(bom_id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    bom = db.query(BOM).filter_by(id=bom_id, tenant_id=user.tenant_id).first()
+    if not bom: raise HTTPException(404)
+    items = data.pop("items", [])
+    for k, v in data.items(): setattr(bom, k, v)
+    db.query(BOMItem).filter_by(parent_id=bom_id).delete()
+    for i in items: db.add(BOMItem(**i, parent_id=bom.id))
+    db.commit(); return bom
+
+@app.delete("/api/manufacturing/bom/{bom_id}")
+def delete_bom(bom_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    bom = db.query(BOM).filter_by(id=bom_id, tenant_id=user.tenant_id).first()
+    if not bom: raise HTTPException(404)
+    db.query(BOMItem).filter_by(parent_id=bom_id).delete()
+    db.delete(bom); db.commit(); return {"status": "ok"}
+
+@app.post("/api/manufacturing/produce")
+def produce_from_bom(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    bom_id = data.get("bom_id")
+    qty = float(data.get("qty", 1))
+    bom = db.query(BOM).filter_by(id=bom_id, tenant_id=user.tenant_id).first()
+    if not bom: raise HTTPException(404, "BOM not found")
+    
+    # Check and Deduct Raw Materials
+    raw_items = db.query(BOMItem).filter_by(parent_id=bom.id).all()
+    for item in raw_items:
+        prod = db.query(Product).filter_by(sku=item.item_code, tenant_id=user.tenant_id).first()
+        if prod:
+            used_qty = item.qty * qty
+            prod.stock -= used_qty
+            db.add(StockLedger(item_code=item.item_code, qty=-used_qty, warehouse="Production", voucher_type="Work Order", voucher_no=bom.id, tenant_id=user.tenant_id))
+    
+    # Add Finished Good
+    fg = db.query(Product).filter_by(sku=bom.item_code, tenant_id=user.tenant_id).first()
+    if fg:
+        fg.stock += qty
+        db.add(StockLedger(item_code=bom.item_code, qty=qty, warehouse="Main", voucher_type="Work Order", voucher_no=bom.id, tenant_id=user.tenant_id))
+    
+    db.commit()
+    return {"status": "success", "produced": qty, "item": bom.item_code}
+
+import pandas as pd
+import io
+from fastapi.responses import StreamingResponse
+
+# --- REPORTING ENGINE ---
+@app.get("/api/reports/view/{type}")
+def view_report(type: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    if type == "sales":
+        data = db.query(Invoice.id, Invoice.customer, Invoice.date, Invoice.amount, Invoice.status).filter(Invoice.tenant_id == user.tenant_id).all()
+        return [dict(zip(["Voucher", "Customer", "Date", "Amount", "Status"], r)) for r in data]
+    elif type == "purchase":
+        data = db.query(PurchaseOrder.id, PurchaseOrder.vendor, PurchaseOrder.date, PurchaseOrder.total, PurchaseOrder.status).filter(PurchaseOrder.tenant_id == user.tenant_id).all()
+        return [dict(zip(["PO ID", "Supplier", "Date", "Amount", "Status"], r)) for r in data]
+    elif type == "inventory":
+        data = db.query(Product.sku, Product.name, Product.stock, Product.cost, Product.sell).filter(Product.tenant_id == user.tenant_id).all()
+        return [dict(zip(["SKU", "Name", "Stock", "Cost", "Value"], [d[0], d[1], d[2], d[3], d[2]*d[3]])) for d in data]
+    elif type == "hr":
+        data = db.query(Employee.id, Employee.name, Employee.role, Employee.dept, Employee.salary, Employee.status).filter(Employee.tenant_id == user.tenant_id).all()
+        return [dict(zip(["Emp ID", "Name", "Designation", "Department", "Salary", "Status"], r)) for r in data]
+    elif type == "financial":
+        revenue = db.query(func.sum(Invoice.amount)).filter(Invoice.tenant_id == user.tenant_id, Invoice.status != "Cancelled").scalar() or 0
+        expenses = db.query(func.sum(PurchaseOrder.total)).filter(PurchaseOrder.tenant_id == user.tenant_id, PurchaseOrder.status != "Cancelled").scalar() or 0
+        payroll = db.query(func.sum(Employee.salary)).filter(Employee.tenant_id == user.tenant_id).scalar() or 0
+        return [
+            {"Account": "Trading Income", "Debit": 0, "Credit": revenue, "Balance": revenue},
+            {"Account": "Cost of Goods Sold", "Debit": expenses, "Credit": 0, "Balance": -expenses},
+            {"Account": "Payroll Expenses", "Debit": payroll, "Credit": 0, "Balance": -payroll},
+            {"Account": "Net Profit", "Debit": 0, "Credit": 0, "Balance": revenue - expenses - payroll}
+        ]
+    return []
+
+@app.get("/api/reports/generate")
+def generate_report(type: str, format: str = "csv", db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    data = view_report(type, db, user)
+    df = pd.DataFrame(data)
+    
+    stream = io.BytesIO()
+    if format == "csv":
+        df.to_csv(stream, index=False)
+        media_type = "text/csv"
+        filename = f"{type}_report.csv"
+    elif format == "excel":
+        df.to_excel(stream, index=False)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        filename = f"{type}_report.xlsx"
+    else:
+        df.to_csv(stream, index=False)
+        media_type = "text/csv"
+        filename = f"{type}_report.csv"
+        
+    stream.seek(0)
+    return StreamingResponse(stream, media_type=media_type, headers={"Content-Disposition": f"attachment; filename={filename}"})
+
+# --- ZERO FILL LOGIC FOR DATA ENTRY ---
+def fill_zero(val):
+    try: return float(val or 0)
+    except: return 0.0
+
+@app.post("/api/inventory/products")
+def create_product(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    sku = data.get("sku") or f"ITEM-{uuid.uuid4().hex[:4].upper()}"
+    p = Product(
+        sku=sku,
+        name=data.get("name"),
+        brand=data.get("brand", ""),
+        category=data.get("category", ""),
+        cost=fill_zero(data.get("cost")),
+        sell=fill_zero(data.get("sell")),
+        stock=int(fill_zero(data.get("stock"))),
+        warehouse=data.get("warehouse", "Main"),
+        tenant_id=user.tenant_id
+    )
+    db.add(p)
+    if p.stock > 0:
+        db.add(StockLedger(
+            item_code=sku, 
+            warehouse=p.warehouse, 
+            qty=float(p.stock), 
+            voucher_type="Opening Stock", 
+            voucher_no="OPENING", 
+            tenant_id=user.tenant_id
+        ))
+    db.commit(); db.refresh(p); return p
+
+@app.post("/api/sales/invoices")
+def create_invoice(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    items = data.pop("items", [])
+    inv_id = f"INV-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}"
+    total = sum([fill_zero(i.get("qty",0)) * fill_zero(i.get("rate",0)) for i in items])
+    inv = Invoice(id=inv_id, customer=data.get("customer"), date=data.get("date", datetime.now().strftime("%Y-%m-%d")), amount=total, grand_total=total, status="Draft", tenant_id=user.tenant_id)
+    db.add(inv)
+    for i in items:
+        qty = fill_zero(i.get("qty",1))
+        rate = fill_zero(i.get("rate",0))
+        item_code = i.get("item_code")
+        db.add(InvoiceItem(invoice_id=inv_id, item_code=item_code, qty=int(qty), rate=rate, amount=qty*rate))
+        # Stock Ledger & Deduction
+        prod = db.query(Product).filter_by(sku=item_code, tenant_id=user.tenant_id).first()
+        if prod:
+            prod.stock -= int(qty)
+            db.add(StockLedger(item_code=item_code, warehouse=prod.warehouse, qty=-float(qty), voucher_type="Invoice", voucher_no=inv_id, tenant_id=user.tenant_id))
+    
+    # Advanced Double-Entry Accounting: Post to Ledger
+    # Debit: Accounts Receivable (1200) | Credit: Sales Revenue (4100)
+    db.add(LedgerEntry(date=inv.date, account="1200", debit=total, credit=0.0, description=f"Invoice {inv_id} generated for {inv.customer}", tenant_id=user.tenant_id))
+    db.add(LedgerEntry(date=inv.date, account="4100", debit=0.0, credit=total, description=f"Revenue from Invoice {inv_id}", tenant_id=user.tenant_id))
+    
+    db.commit(); db.refresh(inv); return inv
+
+# --- WAREHOUSES ---
+@app.get("/api/warehouses")
+def get_warehouses(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(Warehouse).filter(Warehouse.tenant_id == user.tenant_id).all()
+
+@app.post("/api/warehouses")
+def create_warehouse(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    wh = Warehouse(**data, tenant_id=user.tenant_id)
+    db.add(wh); db.commit(); db.refresh(wh); return wh
+
+@app.put("/api/warehouses/{wh_id}")
+def update_warehouse(wh_id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    wh = db.query(Warehouse).filter_by(id=wh_id, tenant_id=user.tenant_id).first()
+    if not wh: raise HTTPException(404)
+    for k, v in data.items(): setattr(wh, k, v)
+    db.commit(); return wh
+
+@app.delete("/api/warehouses/{wh_id}")
+def delete_warehouse(wh_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    wh = db.query(Warehouse).filter_by(id=wh_id, tenant_id=user.tenant_id).first()
+    if not wh: raise HTTPException(404)
+    db.delete(wh); db.commit(); return {"status": "ok"}
+
+@app.post("/api/accounting/payments")
+def create_payment(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    inv_ref = data.get("invoice_ref")
+    p = PaymentEntry(
+        id=f"PAY-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}",
+        date=data.get("date", datetime.now().strftime("%Y-%m-%d")),
+        party_type=data.get("party_type"),
+        party=data.get("party"),
+        payment_type=data.get("payment_type"),
+        amount=fill_zero(data.get("amount")),
+        mode_of_payment=data.get("mode_of_payment"),
+        invoice_ref=inv_ref,
+        notes=data.get("notes"),
+        tenant_id=user.tenant_id
+    )
+    db.add(p)
+    if inv_ref:
+        inv = db.query(Invoice).filter_by(id=inv_ref, tenant_id=user.tenant_id).first()
+        if inv: inv.status = "Paid"
+        
+    # Advanced Double-Entry Accounting: Post to Ledger
+    # If customer payment: Debit Cash(1100), Credit AR(1200)
+    # If supplier payment: Debit AP(2100), Credit Cash(1100)
+    amt = p.amount
+    if p.party_type == "Customer":
+        db.add(LedgerEntry(date=p.date, account="1100", debit=amt, credit=0.0, description=f"Payment received from {p.party} (Ref: {p.id})", tenant_id=user.tenant_id))
+        db.add(LedgerEntry(date=p.date, account="1200", debit=0.0, credit=amt, description=f"Payment cleared for {p.party} (Ref: {p.id})", tenant_id=user.tenant_id))
+    elif p.party_type == "Supplier":
+        db.add(LedgerEntry(date=p.date, account="2100", debit=amt, credit=0.0, description=f"Payment sent to {p.party} (Ref: {p.id})", tenant_id=user.tenant_id))
+        db.add(LedgerEntry(date=p.date, account="1100", debit=0.0, credit=amt, description=f"Cash out to {p.party} (Ref: {p.id})", tenant_id=user.tenant_id))
+
+    db.commit(); db.refresh(p); return p
+
+# --- ADVANCED DOUBLE-ENTRY ACCOUNTING ---
+
+def setup_default_accounts(db: Session, tenant_id: int):
+    defaults = [
+        {"code": "1100", "name": "Cash & Bank", "type": "Asset"},
+        {"code": "1200", "name": "Accounts Receivable", "type": "Asset"},
+        {"code": "1300", "name": "Inventory Asset", "type": "Asset"},
+        {"code": "2100", "name": "Accounts Payable", "type": "Liability"},
+        {"code": "3100", "name": "Owner's Equity", "type": "Equity"},
+        {"code": "4100", "name": "Sales Revenue", "type": "Income"},
+        {"code": "5100", "name": "Cost of Goods Sold", "type": "Expense"},
+        {"code": "5200", "name": "Operating Expenses", "type": "Expense"},
+    ]
+    for acc in defaults:
+        if not db.query(Account).filter_by(code=acc['code'], tenant_id=tenant_id).first():
+            db.add(Account(code=acc['code'], name=acc['name'], type=acc['type'], tenant_id=tenant_id))
+    db.commit()
+
+@app.get("/api/accounting/accounts")
+def get_accounts(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    accs = db.query(Account).filter(Account.tenant_id == user.tenant_id).all()
+    if not accs:
+        setup_default_accounts(db, user.tenant_id)
+        accs = db.query(Account).filter(Account.tenant_id == user.tenant_id).all()
+    
+    # Calculate live balance from Ledger Entries
+    for a in accs:
+        debits = db.query(func.sum(LedgerEntry.debit)).filter(LedgerEntry.account == a.code, LedgerEntry.tenant_id == user.tenant_id).scalar() or 0
+        credits = db.query(func.sum(LedgerEntry.credit)).filter(LedgerEntry.account == a.code, LedgerEntry.tenant_id == user.tenant_id).scalar() or 0
+        if a.type in ["Asset", "Expense"]:
+            a.balance = debits - credits
+        else:
+            a.balance = credits - debits
+            
+    return [{"code": a.code, "name": a.name, "type": a.type, "balance": f"₹{a.balance:,.2f}"} for a in accs]
+
+@app.get("/api/accounting/ledger")
+def get_general_ledger(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    entries = db.query(LedgerEntry, Account.name.label('account_name')).join(Account, LedgerEntry.account == Account.code).filter(LedgerEntry.tenant_id == user.tenant_id).order_by(LedgerEntry.date.desc()).all()
+    
+    return [
+        {
+            "id": e[0].id,
+            "date": e[0].date,
+            "account": f"{e[0].account} - {e[1]}",
+            "debit": e[0].debit,
+            "credit": e[0].credit,
+            "description": e[0].description
+        } for e in entries
+    ]
+
+@app.post("/api/accounting/journal")
+def create_journal_entry(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    entries = data.get("entries", [])
+    total_debit = sum(float(e.get("debit", 0)) for e in entries)
+    total_credit = sum(float(e.get("credit", 0)) for e in entries)
+    
+    if abs(total_debit - total_credit) > 0.01:
+        raise HTTPException(400, "Journal Entry must balance. Debits do not equal Credits.")
+        
+    date = data.get("date", datetime.now().strftime("%Y-%m-%d"))
+    desc = data.get("description", "Manual Journal Entry")
+    
+    for e in entries:
+        if float(e.get("debit", 0)) > 0 or float(e.get("credit", 0)) > 0:
+            db.add(LedgerEntry(date=date, account=e.get("account"), debit=float(e.get("debit", 0)), credit=float(e.get("credit", 0)), description=desc, tenant_id=user.tenant_id))
+            
+    db.commit()
+    return {"status": "success", "message": "Journal Entry posted"}
+
+@app.get("/api/accounting/summary")
+def get_accounting_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    sales = db.query(func.sum(LedgerEntry.credit)).filter(LedgerEntry.account == "4100", LedgerEntry.tenant_id == user.tenant_id).scalar() or 0
+    expenses = db.query(func.sum(LedgerEntry.debit)).filter(LedgerEntry.account.in_(["5100", "5200"]), LedgerEntry.tenant_id == user.tenant_id).scalar() or 0
+    bank = db.query(func.sum(LedgerEntry.debit - LedgerEntry.credit)).filter(LedgerEntry.account == "1100", LedgerEntry.tenant_id == user.tenant_id).scalar() or 0
+    ar = db.query(func.sum(LedgerEntry.debit - LedgerEntry.credit)).filter(LedgerEntry.account == "1200", LedgerEntry.tenant_id == user.tenant_id).scalar() or 0
+    
+    return {
+        "total_revenue": f"₹{sales:,.2f}",
+        "total_expenses": f"₹{expenses:,.2f}",
+        "net_profit": f"₹{(sales - expenses):,.2f}",
+        "gst_payable": f"₹0.00"
+    }

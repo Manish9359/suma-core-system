@@ -2,25 +2,42 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Filter, Phone, Mail, Building2, ArrowRight } from "lucide-react";
+import { Plus, Search, Filter, Phone, Mail, Building2, ArrowRight, Edit, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { crmApi } from "@/lib/api";
+import { crmApi, api } from "@/lib/api";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { LoadingState, ErrorState, EmptyState } from "@/components/LoadingState";
 import { RecordModal, RecordField } from "@/components/RecordModal";
+import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 
 const statusColors: Record<string, string> = {
   New: "status-badge status-open",
   Contacted: "status-badge status-active",
   Qualified: "status-badge status-warning",
   Proposal: "status-badge bg-primary/10 text-primary",
+  Converted: "status-badge status-active opacity-50",
 };
 
 export default function CRMPage() {
+  const navigate = useNavigate();
   const [tab, setTab] = useState<"leads" | "customers">("leads");
   const [modalOpen, setModalOpen] = useState(false);
+  const [custModalOpen, setCustModalOpen] = useState(false);
+  const [editingCust, setEditingCust] = useState<any>(null);
   const { data: leads, isLoading: leadsLoading, error: leadsError, refetch: refetchLeads } = useApiQuery(["crm", "leads"], crmApi.getLeads);
   const { data: customers, isLoading: customersLoading, error: customersError, refetch: refetchCustomers } = useApiQuery(["crm", "customers"], crmApi.getCustomers);
+
+  const handleConvert = async (leadId: string) => {
+    try {
+      await api.post(`/api/crm/leads/${leadId}/quotation`, {});
+      toast.success("Lead converted to Quotation successfully");
+      refetchLeads();
+      navigate("/sales");
+    } catch (e) {
+      toast.error("Failed to convert lead");
+    }
+  };
 
   const customerFields: RecordField[] = [
     { name: "company", label: "Company Name", type: "text", required: true },
@@ -38,12 +55,18 @@ export default function CRMPage() {
   ];
 
   const handleSave = async (data: any) => {
-    if (tab === "leads") {
-      await crmApi.createLead(data);
-      refetchLeads();
-    } else {
-      await crmApi.createCustomer(data);
-      refetchCustomers();
+    try {
+      if (tab === "leads") {
+        await crmApi.createLead(data);
+        refetchLeads();
+      } else {
+        await crmApi.createCustomer(data);
+        refetchCustomers();
+      }
+      setModalOpen(false);
+      toast.success("Record saved successfully");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to save record");
     }
   };
 
@@ -104,7 +127,17 @@ export default function CRMPage() {
                     </td>
                     <td><Badge variant="secondary">{l.source}</Badge></td>
                     <td><span className={statusColors[l.status] || "status-badge"}>{l.status}</span></td>
-                    <td><Button variant="ghost" size="sm" className="gap-1 text-xs text-accent hover:text-accent">Convert <ArrowRight className="h-3 w-3" /></Button></td>
+                    <td>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="gap-1 text-xs text-accent hover:text-accent"
+                        disabled={l.status === "Converted"}
+                        onClick={() => handleConvert(String(l.id))}
+                      >
+                        Convert <ArrowRight className="h-3 w-3" />
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -120,15 +153,21 @@ export default function CRMPage() {
           <CardContent className="p-0">
             <table className="data-table">
               <thead className="bg-muted/50">
-                <tr><th>Customer ID</th><th>Company</th><th>Contact Person</th><th>GST Number</th></tr>
+                <tr><th>Customer ID</th><th>Company</th><th>Contact Person</th><th>GST Number</th><th className="text-right">Actions</th></tr>
               </thead>
               <tbody>
-                {customers.map((c) => (
-                  <tr key={c.id} className="hover:bg-accent/5 transition-colors">
+                {customers.map((c: any) => (
+                  <tr key={String(c.id)} className="hover:bg-accent/5 transition-colors">
                     <td className="font-mono text-xs">{c.id}</td>
                     <td className="font-medium">{c.company}</td>
                     <td>{c.contact}</td>
                     <td className="font-mono text-xs">{c.gst}</td>
+                    <td className="flex justify-end gap-1">
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingCust(c); setCustModalOpen(true); }}><Edit className="h-3.5 w-3.5" /></Button>
+                      <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={async () => {
+                        if (confirm(`Delete ${c.company}?`)) { await crmApi.deleteCustomer(c.id); refetchCustomers(); }
+                      }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -139,10 +178,35 @@ export default function CRMPage() {
       )}
 
       <RecordModal
+        open={custModalOpen}
+        onOpenChange={(val) => { setCustModalOpen(val); if (!val) setEditingCust(null); }}
+        title={editingCust ? "Edit Customer" : "New Customer"}
+        fields={customerFields}
+        initialData={editingCust || {}}
+        onSubmit={async (data) => {
+          if (editingCust) await crmApi.updateCustomer(editingCust.id, data);
+          else await crmApi.createCustomer(data);
+          refetchCustomers();
+          setCustModalOpen(false);
+        }}
+      />
+
+      <RecordModal
         open={modalOpen}
         onOpenChange={setModalOpen}
         title={tab === "leads" ? "Add New Lead" : "Add New Customer"}
-        fields={tab === "leads" ? leadFields : customerFields}
+        fields={tab === "leads" ? [
+          { name: "name", label: "Lead Name", type: "text", required: true },
+          { name: "company", label: "Company", type: "text" },
+          { name: "phone", label: "Phone", type: "text" },
+          { name: "email", label: "Email", type: "text" },
+          { name: "source", label: "Source", type: "select", options: ["Website", "Referral", "Cold Call"] }
+        ] : [
+          { name: "company", label: "Company Name", type: "text", required: true },
+          { name: "contact", label: "Contact Person", type: "text", required: true },
+          { name: "address", label: "Address Options", type: "text" },
+          { name: "gst", label: "Tax/GST ID", type: "text" }
+        ]}
         onSubmit={handleSave}
       />
     </div>

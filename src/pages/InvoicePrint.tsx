@@ -1,5 +1,5 @@
 import { useParams } from "react-router-dom";
-import { salesApi, api } from "@/lib/api";
+import { salesApi, api, purchasingApi } from "@/lib/api";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { LoadingState, ErrorState } from "@/components/LoadingState";
 import { format } from "date-fns";
@@ -8,25 +8,39 @@ import { Printer } from "lucide-react";
 export default function InvoicePrint() {
   const { id, type } = useParams<{ id: string; type?: string }>();
   const isQuote = type === "quotation";
-  const { data, isLoading, error } = useApiQuery(
+  const isPO = type === "purchase_order";
+  const isPR = type === "purchase_receipt";
+
+  const { data: rawData, isLoading, error } = useApiQuery(
     ["doc", type, id],
-    () => isQuote ? salesApi.getQuotation(id!) : salesApi.getInvoice(id!)
+    () => {
+      if (isQuote) return salesApi.getQuotation(id!);
+      if (isPO) return purchasingApi.getOrder(id!);
+      if (isPR) return purchasingApi.getReceipt(id!);
+      return salesApi.getInvoice(id!);
+    }
   );
+  const data = rawData as any;
   const { data: co } = useApiQuery(["settings", "company"], () => api.get<any>("/api/settings/company"));
 
-  if (isLoading) return <LoadingState message="Loading Invoice..." />;
-  if (error || !data) return <ErrorState message="Could not load Invoice." />;
+  if (isLoading) return <LoadingState message={`Loading ${type || 'invoice'}...`} />;
+  if (error || !data) return <ErrorState message={`Could not load ${type || 'invoice'}.`} />;
 
-  const { customer_name, customer_address, customer_contact, customer_gst, date, amount, grand_total, custom_data, items } = data;
+  const customer_name = data.customer_name || data.vendor_name || data.supplier_name || data.customer || data.vendor || data.supplier;
+  const customer_address = data.customer_address || data.vendor_address || data.supplier_address || "";
+  const customer_contact = data.customer_contact || data.vendor_contact || "";
+  const customer_gst = data.customer_gst || data.vendor_gst || "";
+  
+  const { date, amount, grand_total, custom_data, items = [] } = data;
   const discount_total = Number(custom_data?.discount || 0);
   const gst_rate = Number(custom_data?.gst_rate || 0);
   const hasGst = gst_rate > 0;
-  const taxable = Number(custom_data?.taxable ?? (amount - discount_total));
+  const taxable = Number(custom_data?.taxable ?? (Number(amount || 0) - discount_total));
   const cgst = hasGst ? Number(custom_data?.cgst || 0) : 0;
   const sgst = hasGst ? Number(custom_data?.sgst || 0) : 0;
 
   // Per-item discount is distributed proportionally from total discount
-  const subtotal = Number(amount);
+  const subtotal = Number(amount || 0);
   const discountFraction = subtotal > 0 ? discount_total / subtotal : 0;
 
   return (

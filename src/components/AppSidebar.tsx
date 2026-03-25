@@ -1,7 +1,7 @@
 import {
-  LayoutDashboard, Users, ShoppingCart, Package, Truck,
+  LayoutDashboard, Users, ShoppingCart, Package, Truck, Building2,
   Calculator, UserCog, Headphones, Shield, Wrench,
-  BarChart3, Settings, LogOut
+  BarChart3, Settings, LogOut, Hammer, ShoppingBag, Box, CheckCircle
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -17,10 +17,17 @@ const modules = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "CRM", url: "/crm", icon: Users },
   { title: "Sales", url: "/sales", icon: ShoppingCart },
+  { title: "Sales Orders", url: "/sales/orders", icon: ShoppingBag },
   { title: "Inventory", url: "/inventory", icon: Package },
+  { title: "Warehouses", url: "/warehouses", icon: Building2 },
   { title: "Purchasing", url: "/purchasing", icon: Truck },
+  { title: "Suppliers", url: "/suppliers", icon: ShoppingCart },
+  { title: "Manufacturing", url: "/manufacturing", icon: Hammer },
   { title: "Accounting", url: "/accounting", icon: Calculator },
   { title: "HR & Payroll", url: "/hr", icon: UserCog },
+  { title: "Assets", url: "/assets", icon: Box },
+  { title: "Quality", url: "/quality", icon: CheckCircle },
+  { title: "Projects", url: "/projects", icon: BarChart3 },
   { title: "Service Tickets", url: "/service", icon: Headphones },
   { title: "AMC", url: "/amc", icon: Shield },
   { title: "Installations", url: "/installations", icon: Wrench },

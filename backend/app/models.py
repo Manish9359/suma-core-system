@@ -120,6 +120,14 @@ class PurchaseOrder(Base):
     status = Column(String, default="Draft")
     tenant_id = Column(Integer, ForeignKey("tenants.id"))
 
+class PurchaseOrderItem(Base):
+    __tablename__ = "purchase_order_items"
+    id = Column(Integer, primary_key=True)
+    parent_id = Column(String, ForeignKey("purchase_orders.id"))
+    item_code = Column(String, ForeignKey("products.sku"))
+    qty = Column(Float)
+    rate = Column(Float)
+
 # --- HR ---
 class Employee(Base):
     __tablename__ = "employees"
@@ -181,3 +189,183 @@ class QuotationItem(Base):
     disc_pct = Column(Float, default=0.0)
     amount = Column(Float, default=0.0)
 
+# --- WAREHOUSES & STOCK LEDGER ---
+class Warehouse(Base):
+    __tablename__ = "warehouses"
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
+    location = Column(String)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class StockLedger(Base):
+    __tablename__ = "stock_ledger"
+    id = Column(Integer, primary_key=True)
+    item_code = Column(String, ForeignKey("products.sku"))
+    warehouse = Column(String, ForeignKey("warehouses.id"))
+    qty = Column(Float) # positive for inward, negative for outward
+    voucher_type = Column(String) # Invoice, Purchase Receipt, Stock Entry
+    voucher_no = Column(String)
+    date = Column(DateTime, default=datetime.utcnow)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class StockEntry(Base):
+    __tablename__ = "stock_entries"
+    id = Column(String, primary_key=True) # SE-0001
+    purpose = Column(String) # Material Receipt, Material Issue, Material Transfer
+    date = Column(String)
+    total_qty = Column(Float, default=0.0)
+    total_amount = Column(Float, default=0.0)
+    status = Column(String, default="Draft") # Draft, Submitted
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class StockEntryItem(Base):
+    __tablename__ = "stock_entry_items"
+    id = Column(Integer, primary_key=True)
+    parent_id = Column(String, ForeignKey("stock_entries.id"))
+    item_code = Column(String, ForeignKey("products.sku"))
+    qty = Column(Float)
+    s_warehouse = Column(String, ForeignKey("warehouses.id")) # source
+    t_warehouse = Column(String, ForeignKey("warehouses.id")) # target
+    rate = Column(Float, default=0.0)
+    amount = Column(Float, default=0.0)
+
+# --- SUPPLIERS ---
+class Supplier(Base):
+    __tablename__ = "suppliers"
+    id = Column(String, primary_key=True) # SUPP-0001
+    name = Column(String, nullable=False)
+    contact = Column(String)
+    address = Column(String)
+    category = Column(String)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+# --- PROJECTS ---
+class Project(Base):
+    __tablename__ = "projects"
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
+    status = Column(String, default="Open") # Open, Completed, Cancelled
+    customer = Column(String, ForeignKey("customers.id"))
+    start_date = Column(String)
+    end_date = Column(String)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class Task(Base):
+    __tablename__ = "tasks"
+    id = Column(Integer, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.id"))
+    title = Column(String, nullable=False)
+    status = Column(String, default="Todo")
+    assigned_to = Column(String, ForeignKey("employees.id"))
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class Issue(Base):
+    __tablename__ = "issues"
+    id = Column(String, primary_key=True)
+    customer = Column(String, ForeignKey("customers.id"))
+    subject = Column(String, nullable=False)
+    description = Column(Text)
+    priority = Column(String, default="Medium") # Low, Medium, High, Urgent
+    status = Column(String, default="Open") # Open, Closed, On Hold
+    opening_date = Column(DateTime, default=datetime.utcnow)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+# --- EXPANDED SALES ---
+class SalesOrder(Base):
+    __tablename__ = "sales_orders"
+    id = Column(String, primary_key=True) # SO-2026-0001
+    customer = Column(String, ForeignKey("customers.id"))
+    date = Column(String)
+    total = Column(Float, default=0.0)
+    status = Column(String, default="Draft") # Draft, Submitted, Completed
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class SalesOrderItem(Base):
+    __tablename__ = "sales_order_items"
+    id = Column(Integer, primary_key=True)
+    parent_id = Column(String, ForeignKey("sales_orders.id"))
+    item_code = Column(String, ForeignKey("products.sku"))
+    qty = Column(Float)
+    rate = Column(Float)
+
+# --- EXPANDED PROCUREMENT ---
+class PurchaseReceipt(Base):
+    __tablename__ = "purchase_receipts"
+    id = Column(String, primary_key=True) # PR-2026-0001
+    supplier = Column(String, ForeignKey("suppliers.id"))
+    date = Column(String)
+    status = Column(String, default="Draft") # Draft, Submitted
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class PurchaseReceiptItem(Base):
+    __tablename__ = "purchase_receipt_items"
+    id = Column(Integer, primary_key=True)
+    parent_id = Column(String, ForeignKey("purchase_receipts.id"))
+    item_code = Column(String, ForeignKey("products.sku"))
+    qty = Column(Float)
+    warehouse = Column(String, ForeignKey("warehouses.id"))
+
+class MaterialRequest(Base):
+    __tablename__ = "material_requests"
+    id = Column(String, primary_key=True)
+    date = Column(String)
+    type = Column(String) # Purchase, Transfer, Manufacture
+    status = Column(String, default="Draft")
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class MaterialRequestItem(Base):
+    __tablename__ = "material_request_items"
+    id = Column(Integer, primary_key=True)
+    parent_id = Column(String, ForeignKey("material_requests.id"))
+    item_code = Column(String, ForeignKey("products.sku"))
+    qty = Column(Float)
+
+# --- MANUFACTURING ---
+class BOM(Base):
+    __tablename__ = "bills_of_materials"
+    id = Column(String, primary_key=True) # BOM-ITEM-001
+    item_code = Column(String, ForeignKey("products.sku"))
+    qty = Column(Float, default=1.0)
+    total_cost = Column(Float, default=0.0)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class BOMItem(Base):
+    __tablename__ = "bom_items"
+    id = Column(Integer, primary_key=True)
+    parent_id = Column(String, ForeignKey("bills_of_materials.id"))
+    item_code = Column(String, ForeignKey("products.sku"))
+    qty = Column(Float)
+
+# --- EXPANDED ACCOUNTING ---
+class PaymentEntry(Base):
+    __tablename__ = "payment_entries"
+    id = Column(String, primary_key=True) # PAY-2026-0001
+    date = Column(String)
+    party_type = Column(String) # Customer, Supplier
+    party = Column(String)
+    payment_type = Column(String) # Receive, Pay
+    amount = Column(Float, default=0.0)
+    mode_of_payment = Column(String) # Cash, Bank, UPI
+    invoice_ref = Column(String, ForeignKey("invoices.id"), nullable=True)
+    notes = Column(String, nullable=True)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class QualityInspection(Base):
+    __tablename__ = "quality_inspections"
+    id = Column(String, primary_key=True)
+    reference_type = Column(String) # Purchase Receipt, Work Order
+    reference_no = Column(String)
+    item_code = Column(String, ForeignKey("products.sku"))
+    status = Column(String) # Passed, Failed
+    remarks = Column(Text)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class Asset(Base):
+    __tablename__ = "assets"
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
+    purchase_date = Column(String)
+    gross_purchase_amount = Column(Float)
+    warehouse = Column(String, ForeignKey("warehouses.id"))
+    status = Column(String, default="Scrapped")
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))

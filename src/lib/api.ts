@@ -73,6 +73,17 @@ class ApiClient {
   delete<T>(endpoint: string) {
     return this.request<T>(endpoint, { method: "DELETE" });
   }
+
+  async blobRequest(endpoint: string): Promise<Blob> {
+    const token = this.getToken();
+    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+    if (!response.ok) throw new Error("File request failed");
+    return response.blob();
+  }
 }
 
 export const api = new ApiClient(BASE_URL);
@@ -126,23 +137,33 @@ export const inventoryApi = {
   updateProduct: (sku: string, data: Partial<Product>) => api.put<Product>(`/api/inventory/products/${sku}`, data),
   deleteProduct: (sku: string) => api.delete(`/api/inventory/products/${sku}`),
   getSummary: () => api.get<InventorySummary>("/api/inventory/summary"),
+  getLedger: () => api.get<StockLedgerEntry[]>("/api/inventory/ledger"),
+  getStockByWarehouse: () => api.get<any[]>("/api/inventory/stock-by-warehouse"),
 };
 
 export const purchasingApi = {
   getOrders: () => api.get<PurchaseOrder[]>("/api/purchasing/orders"),
+  getOrder: (id: string) => api.get<any>(`/api/purchasing/orders/${id}`),
   createOrder: (data: Partial<PurchaseOrder>) => api.post<PurchaseOrder>("/api/purchasing/orders", data),
+  updateOrder: (id: string, data: Partial<PurchaseOrder>) => api.put<PurchaseOrder>(`/api/purchasing/orders/${id}`, data),
+  deleteOrder: (id: string) => api.delete(`/api/purchasing/orders/${id}`),
+  getReceipts: () => api.get<any[]>("/api/purchasing/receipts"),
+  getReceipt: (id: string) => api.get<any>(`/api/purchasing/receipts/${id}`),
 };
 
 export const accountingApi = {
   getAccounts: () => api.get<Account[]>("/api/accounting/accounts"),
   getSummary: () => api.get<AccountingSummary>("/api/accounting/summary"),
   getLedger: () => api.get<LedgerEntry[]>("/api/accounting/ledger"),
+  getPayments: () => api.get<PaymentEntry[]>("/api/accounting/payments"),
+  createPayment: (data: Partial<PaymentEntry>) => api.post<PaymentEntry>("/api/accounting/payments", data),
 };
 
 export const hrApi = {
   getEmployees: () => api.get<Employee[]>("/api/hr/employees"),
   createEmployee: (data: Partial<Employee>) => api.post<Employee>("/api/hr/employees", data),
   updateEmployee: (id: string, data: Partial<Employee>) => api.put<Employee>(`/api/hr/employees/${id}`, data),
+  deleteEmployee: (id: string) => api.delete(`/api/hr/employees/${id}`),
   getSummary: () => api.get<HRSummary>("/api/hr/summary"),
 };
 
@@ -164,10 +185,37 @@ export const installationApi = {
   createProject: (data: Partial<Installation>) => api.post<Installation>("/api/installations/projects", data),
 };
 
-export const reportsApi = {
-  generate: (type: string, format: "pdf" | "excel" | "csv") =>
-    api.get<Blob>(`/api/reports/${type}?format=${format}`),
+export const projectsErpApi = {
+  getProjects: () => api.get<Project[]>("/api/projects"),
+  createProject: (data: Partial<Project>) => api.post<Project>("/api/projects", data),
 };
+
+export const supplierApi = {
+  getSuppliers: () => api.get<Supplier[]>("/api/suppliers"),
+  createSupplier: (data: Partial<Supplier>) => api.post<Supplier>("/api/suppliers", data),
+  updateSupplier: (id: string, data: Partial<Supplier>) => api.put<Supplier>(`/api/suppliers/${id}`, data),
+  deleteSupplier: (id: string) => api.delete(`/api/suppliers/${id}`),
+};
+
+export const warehouseApi = {
+  getWarehouses: () => api.get<Warehouse[]>("/api/warehouses"),
+  createWarehouse: (data: Partial<Warehouse>) => api.post<Warehouse>("/api/warehouses", data),
+  updateWarehouse: (id: string, data: Partial<Warehouse>) => api.put<Warehouse>(`/api/warehouses/${id}`, data),
+  deleteWarehouse: (id: string) => api.delete(`/api/warehouses/${id}`),
+};
+
+export const reportsApi = {
+  getSummary: () => api.get<ReportSummary>("/api/reports/summary"),
+  view: (type: string) => api.get<any[]>(`/api/reports/view/${type}`),
+  generate: (type: string, format: string) => 
+    api.blobRequest(`/api/reports/generate?type=${type}&format=${format}`),
+};
+
+export interface ReportSummary {
+  sales_trend: any[];
+  inventory_status: any;
+  financial_health: number;
+}
 
 // Types
 export interface AuthUser {
@@ -260,6 +308,16 @@ export interface InventorySummary {
   low_stock_count: number;
 }
 
+export interface StockLedgerEntry {
+  id: number;
+  item_code: string;
+  warehouse: string;
+  qty: number;
+  voucher_type: string;
+  voucher_no: string;
+  date: string;
+}
+
 export interface PurchaseOrder {
   id: string;
   vendor: string;
@@ -348,4 +406,38 @@ export interface Installation {
   team: string;
   date: string;
   status: string;
+  completion?: string;
+}
+
+export interface Warehouse {
+  id: string;
+  name: string;
+  location: string;
+}
+
+export interface Supplier {
+  id: string;
+  name: string;
+  contact: string;
+  address: string;
+  category: string;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  customer: string;
+  status: string;
+  start_date: string;
+  end_date: string;
+}
+
+export interface PaymentEntry {
+  id: string;
+  date: string;
+  party_type: string;
+  party: string;
+  payment_type: string;
+  amount: number;
+  mode_of_payment: string;
 }

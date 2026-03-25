@@ -76,7 +76,9 @@ function DynamicTableInput({ field, value = [], onChange }: { field: RecordField
               {field.columns?.map(c => (
                 <td key={c.name} className="p-1">
                   {c.type === "select" ? (
-                    <Select value={row[c.name] || ""} onValueChange={(val) => {
+                    <Select 
+                      value={row[c.name] !== undefined && row[c.name] !== null ? String(row[c.name]) : ""} 
+                      onValueChange={(val) => {
                       const updated = [...rows];
                       updated[idx][c.name] = val;
                       const opt: any = c.options?.find((o: any) => (typeof o === "string" ? o : o.value) === val);
@@ -101,7 +103,7 @@ function DynamicTableInput({ field, value = [], onChange }: { field: RecordField
                     <Input 
                       className="h-8 text-xs px-2" 
                       type={c.type} 
-                      value={row[c.name] || ""} 
+                      value={row[c.name] !== undefined && row[c.name] !== null ? row[c.name] : ""} 
                       onChange={(e) => updateRow(idx, c.name, c.type === "number" ? Number(e.target.value) : e.target.value)} 
                     />
                   )}
@@ -175,7 +177,7 @@ export function RecordModal({ open, onOpenChange, title, description, fields, on
               </Label>
               {field.type === "select" ? (
                 <Select
-                  value={formData[field.name] || ""}
+                  value={formData[field.name] !== undefined && formData[field.name] !== null ? String(formData[field.name]) : ""}
                   onValueChange={(val) => handleChange(field.name, val)}
                   required={field.required}
                 >
@@ -191,14 +193,14 @@ export function RecordModal({ open, onOpenChange, title, description, fields, on
                   </SelectContent>
                 </Select>
               ) : field.type === "table" ? (
-                <DynamicTableInput field={field} value={formData[field.name] || []} onChange={(v) => handleChange(field.name, v)} />
+                <DynamicTableInput field={field} value={formData[field.name] !== undefined && formData[field.name] !== null ? formData[field.name] : []} onChange={(v) => handleChange(field.name, v)} />
               ) : (
                 <Input
                   id={field.name}
                   type={field.type}
                   required={field.required}
                   disabled={field.disabled}
-                  value={formData[field.name] || ""}
+                  value={formData[field.name] !== undefined && formData[field.name] !== null ? String(formData[field.name]) : ""}
                   onChange={(e) => handleChange(field.name, e.target.type === "number" ? Number(e.target.value) : e.target.value)}
                   placeholder={`Enter ${field.label.toLowerCase()}`}
                 />

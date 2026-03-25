@@ -8,10 +8,15 @@ import { AppLayout } from "@/components/AppLayout";
 import Dashboard from "./pages/Dashboard";
 import CRMPage from "./pages/CRMPage";
 import SalesPage from "./pages/SalesPage";
+import SalesOrderPage from "./pages/SalesOrderPage";
 import InventoryPage from "./pages/InventoryPage";
+import WarehousePage from "./pages/WarehousePage";
 import PurchasingPage from "./pages/PurchasingPage";
+import SupplierPage from "./pages/SupplierPage";
+import ManufacturingPage from "./pages/ManufacturingPage";
 import AccountingPage from "./pages/AccountingPage";
 import HRPage from "./pages/HRPage";
+import ProjectsPage from "./pages/ProjectsPage";
 import ServicePage from "./pages/ServicePage";
 import AMCPage from "./pages/AMCPage";
 import InstallationsPage from "./pages/InstallationsPage";
@@ -61,10 +66,15 @@ function AppRoutes() {
       <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/crm" element={<ProtectedRoute><CRMPage /></ProtectedRoute>} />
       <Route path="/sales" element={<ProtectedRoute><SalesPage /></ProtectedRoute>} />
+      <Route path="/sales/orders" element={<ProtectedRoute><SalesOrderPage /></ProtectedRoute>} />
       <Route path="/inventory" element={<ProtectedRoute><InventoryPage /></ProtectedRoute>} />
+      <Route path="/warehouses" element={<ProtectedRoute><WarehousePage /></ProtectedRoute>} />
       <Route path="/purchasing" element={<ProtectedRoute><PurchasingPage /></ProtectedRoute>} />
+      <Route path="/suppliers" element={<ProtectedRoute><SupplierPage /></ProtectedRoute>} />
+      <Route path="/manufacturing" element={<ProtectedRoute><ManufacturingPage /></ProtectedRoute>} />
       <Route path="/accounting" element={<ProtectedRoute><AccountingPage /></ProtectedRoute>} />
       <Route path="/hr" element={<ProtectedRoute><HRPage /></ProtectedRoute>} />
+      <Route path="/projects" element={<ProtectedRoute><ProjectsPage /></ProtectedRoute>} />
       <Route path="/service" element={<ProtectedRoute><ServicePage /></ProtectedRoute>} />
       <Route path="/amc" element={<ProtectedRoute><AMCPage /></ProtectedRoute>} />
       <Route path="/installations" element={<ProtectedRoute><InstallationsPage /></ProtectedRoute>} />
