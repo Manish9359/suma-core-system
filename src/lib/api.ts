@@ -210,6 +210,19 @@ export const warehouseApi = {
   deleteWarehouse: (id: string) => api.delete(`/api/warehouses/${id}`),
 };
 
+export const engineApi = {
+  calculateTax: (payload: any) => api.post<{grand_total: number, taxes: any[]}>("/api/erpnext/calculate_tax_full", payload),
+  getStockBalance: (itemCode: string) => api.get<any>(`/api/engine/stock_balance/${itemCode}`),
+  validateLedger: (glMap: any[]) => api.post<any>("/api/engine/validate_ledger", { gl_map: glMap }),
+  getProductionDemand: (bomId: string, qty: number) => api.post<any>("/api/manufacturing/produce", { bom_id: bomId, qty, dry_run: true }),
+  calcSalary: (empId: string, month: number, year: number) => api.get<any>(`/api/hr/calculate_salary?employee_id=${empId}&month=${month}&year=${year}`)
+};
+
+export const workflowApi = {
+  approve: (doctype: string, docid: string) => api.post<any>(`/api/workflow/approve/${encodeURIComponent(doctype)}/${encodeURIComponent(docid)}`),
+  getSignatures: (doctype: string, docid: string) => api.get<any[]>(`/api/workflow/signatures/${encodeURIComponent(doctype)}/${encodeURIComponent(docid)}`),
+};
+
 export const reportsApi = {
   getSummary: () => api.get<ReportSummary>("/api/reports/summary"),
   view: (type: string) => api.get<any[]>(`/api/reports/view/${type}`),

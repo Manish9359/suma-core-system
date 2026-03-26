@@ -5,13 +5,17 @@ from sqlalchemy import func
 import uuid
 
 from app.database import engine, Base, get_db
-from app.models import (Tenant, User, CustomField, Lead, Customer, Product, Invoice, InvoiceItem, Account, LedgerEntry, Employee, PurchaseOrder, PurchaseOrderItem, WorkflowTask, CompanySettings, Quotation, QuotationItem, Warehouse, StockLedger, StockEntry, StockEntryItem, Supplier, Project, Task, SalesOrder, SalesOrderItem, PurchaseReceipt, PurchaseReceiptItem, BOM, BOMItem, PaymentEntry, MaterialRequest, MaterialRequestItem, Asset, Issue, QualityInspection, Attendance, SalarySlip)
+from app.models import (Tenant, User, Role, Permission, Notification, WorkflowSignature, CustomField, Lead, Customer, Product, Invoice, InvoiceItem, Account, LedgerEntry, Employee, PurchaseOrder, PurchaseOrderItem, WorkflowTask, CompanySettings, Quotation, QuotationItem, Warehouse, StockLedger, StockEntry, StockEntryItem, Supplier, Project, Task, SalesOrder, SalesOrderItem, PurchaseReceipt, PurchaseReceiptItem, BOM, BOMItem, PaymentEntry, MaterialRequest, MaterialRequestItem, Asset, Issue, QualityInspection, Attendance, SalarySlip)
 from app.schemas import LoginReq, TokenRes, CustomerCreate, ProductCreate, InvoiceCreate, EmployeeCreate
-from app.engine import TaxesAndTotals, GeneralLedger, StockEngine
+from app.engine import TaxesAndTotals, GeneralLedger, StockEngine, BOMExploder, WorkOrderScheduler, ReorderEngine, DeferredRevenueEngine
 from pydantic import BaseModel
 from typing import List
 from datetime import datetime
-from app.security import hash_password, verify_password, create_token, get_current_user_token
+from app.security import hash_password, verify_password, create_token, get_current_user_token, has_permission
+
+# --- NATIVE SUMA LOGIC (Refactored from ERPNext) ---
+# We no longer rely on external 'frappe' or 'erpnext' packages.
+# All business logic is now contained within app/engine.py (SUMA Native Engine).
 
 # Initialize DB tables
 Base.metadata.create_all(bind=engine)
@@ -32,16 +36,158 @@ def login(data: LoginReq, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == data.email).first()
     if not user or not verify_password(data.password, user.password):
         raise HTTPException(status_code=401, detail="Invalid credential")
+    if user.status == "Disabled":
+        raise HTTPException(status_code=403, detail="User account is disabled")
     token = create_token(user)
     return {
         "access_token": token,
         "token_type": "bearer",
-        "user": {"id": user.id, "email": user.username, "name": "Admin", "role": user.role}
+        "user": {"id": user.id, "email": user.username, "name": str(user.username.split("@")[0]).capitalize(), "role": user.role}
     }
 
 @app.get("/api/auth/me")
 def get_me(user: User = Depends(get_current_user_token)):
-    return {"id": user.id, "email": user.username, "name": "Admin", "role": user.role}
+    return {"id": user.id, "email": user.username, "name": str(user.username.split("@")[0]).capitalize(), "role": user.role, "status": user.status}
+
+# ─── USER MANAGEMENT (ADMIN) ───
+@app.get("/api/system/users")
+def list_users(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    if user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return db.query(User).filter(User.tenant_id == user.tenant_id).all()
+
+class UserUpdate(BaseModel):
+    username: str | None = None
+    role: str | None = None
+    status: str | None = None
+    password: str | None = None
+
+@app.post("/api/system/users")
+def create_user(data: UserUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    if user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    if not data.password:
+        raise HTTPException(status_code=400, detail="Password is required")
+    new_user = User(
+        username=data.username,
+        password=hash_password(data.password),
+        role=data.role or "Employee",
+        status="Active",
+        tenant_id=user.tenant_id
+    )
+    db.add(new_user)
+    db.commit()
+    return {"status": "success", "id": new_user.id}
+
+@app.delete("/api/system/users/{uid}")
+def delete_user(uid: int, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    if user.role != "Admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    target = db.query(User).filter(User.id == uid, User.tenant_id == user.tenant_id).first()
+    if not target: raise HTTPException(status_code=404, detail="User not found")
+    db.delete(target)
+    db.commit()
+    return {"status": "success"}
+
+# --- ROLE & PERMISSION MANAGEMENT ---
+@app.get("/api/system/roles")
+def list_roles(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(Role).filter(Role.tenant_id == user.tenant_id).all()
+
+@app.post("/api/system/roles")
+def create_role(name: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    if user.role != "Admin": raise HTTPException(403, "Admin only")
+    new_role = Role(name=name, tenant_id=user.tenant_id)
+    db.add(new_role)
+    db.commit()
+    return {"status": "success", "id": new_role.id}
+
+@app.get("/api/system/roles/{rid}/permissions")
+def get_role_permissions(rid: int, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(Permission).filter_by(role_id=rid).all()
+
+@app.post("/api/system/roles/{rid}/permissions")
+def update_role_permissions(rid: int, permissions: List[dict], db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    if user.role != "Admin": raise HTTPException(403, "Admin only")
+    # Clean old
+    db.query(Permission).filter_by(role_id=rid).delete()
+    # Add new
+    for p in permissions:
+        perm = Permission(
+            role_id=rid,
+            doctype=p['doctype'],
+            can_read=p.get('can_read', True),
+            can_write=p.get('can_write', False),
+            can_create=p.get('can_create', False),
+            can_delete=p.get('can_delete', False),
+            can_submit=p.get('can_submit', False),
+            can_cancel=p.get('can_cancel', False)
+        )
+        db.add(perm)
+    db.commit()
+    return {"status": "success"}
+
+# ─── WORKFLOW & SIGNATURES ───
+@app.post("/api/workflow/approve/{doctype}/{docid}")
+def approve_document(doctype: str, docid: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    if not has_permission(user, doctype, "submit", db):
+        raise HTTPException(403, f"Insufficient permissions to approve {doctype}")
+    
+    # Map high-level doctype to model
+    if doctype == "Sales Invoice":
+        target = db.query(Invoice).filter_by(id=docid, tenant_id=user.tenant_id).first()
+    elif doctype == "Purchase Order":
+        target = db.query(PurchaseOrder).filter_by(id=docid, tenant_id=user.tenant_id).first()
+    else:
+        raise HTTPException(400, "Unsupported document type")
+        
+    if not target: raise HTTPException(404, "Document not found")
+    
+    # Record Signature
+    sig = WorkflowSignature(
+        doctype=doctype,
+        docname=docid,
+        user_id=user.id,
+        role=user.role,
+        action="Approve",
+        tenant_id=user.tenant_id
+    )
+    db.add(sig)
+    
+    # Update State
+    target.workflow_state = "Approved"
+    if hasattr(target, "status") and target.status == "Locked":
+        target.status = "Draft" # Unlock for further processing
+        
+    db.commit()
+    
+    # Create notification for owner
+    notif = Notification(
+        user_id=1, # Admin/System
+        title="Document Approved",
+        message=f"Your {doctype} {docid} has been approved by {user.username}",
+        type="Success",
+        tenant_id=user.tenant_id
+    )
+    db.add(notif)
+    db.commit()
+    
+    return {"status": "Approved", "signature_id": sig.id}
+
+@app.get("/api/workflow/signatures/{doctype}/{docid}")
+def get_signatures(doctype: str, docid: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(WorkflowSignature).filter_by(doctype=doctype, docname=docid, tenant_id=user.tenant_id).all()
+@app.get("/api/system/notifications")
+def get_notifications(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(Notification).filter(Notification.user_id == user.id, Notification.read == False).order_by(Notification.created_at.desc()).all()
+
+@app.post("/api/system/notifications/{nid}/read")
+def read_notification(nid: int, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    notif = db.query(Notification).filter(Notification.id == nid, Notification.user_id == user.id).first()
+    if notif:
+        notif.read = True
+        db.commit()
+    return {"status": "success"}
 
 # ─── PURCHASING ───
 @app.get("/api/purchasing/orders")
@@ -55,7 +201,9 @@ class PurchaseOrderCreate(BaseModel):
 
 @app.post("/api/purchasing/orders")
 def create_purchasing(data: PurchaseOrderCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    po_id = f"PO-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}"
+    if not has_permission(user, "Purchase Order", "create", db):
+        raise HTTPException(status_code=403, detail="Insufficient Purchase permissions")
+    po_id = f"PO-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}"
     total = sum([(i.get("qty", 0) * i.get("rate", 0)) for i in data.items])
     po = PurchaseOrder(id=po_id, vendor=data.vendor, date=data.date, items=len(data.items), total=total, status="Ordered", tenant_id=user.tenant_id)
     db.add(po)
@@ -98,8 +246,9 @@ class LeadCreate(BaseModel):
 
 @app.post("/api/crm/leads")
 def create_lead(data: LeadCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    if user.role != "Admin": raise HTTPException(403, "Admins only")
-    lead_id = f"LD-{str(uuid.uuid4())[:6].upper()}"
+    if not has_permission(user, "CRM Lead", "create", db): 
+        raise HTTPException(status_code=403, detail="Insufficient CRM permissions")
+    lead_id = f"LD-{uuid.uuid4().hex[:6].upper()}"
     lead = Lead(id=lead_id, tenant_id=user.tenant_id, name=data.name, company=data.company, phone=data.phone, email=data.email, status="New")
     db.add(lead)
     db.commit()
@@ -113,7 +262,7 @@ def list_customers(db: Session = Depends(get_db), user: User = Depends(get_curre
 @app.post("/api/crm/customers")
 def create_customer(data: CustomerCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if user.role != "Admin": raise HTTPException(403, "Admins only")
-    cust_id = f"CUST-{str(uuid.uuid4())[:6].upper()}"
+    cust_id = f"CUST-{uuid.uuid4().hex[:6].upper()}"
     cust = Customer(id=cust_id, tenant_id=user.tenant_id, **data.dict(exclude_unset=True))
     db.add(cust)
     db.commit()
@@ -230,18 +379,26 @@ class InvoiceCreateExtended(BaseModel):
 
 @app.post("/api/sales/invoices")
 def add_invoice(data: InvoiceCreateExtended, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    inv_id = f"INV-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}"
+    inv_id = f"INV-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}"
     total = sum([item.get("qty",0) * item.get("rate",0) for item in data.items])
     discount = data.discount
     taxable = max(total - discount, 0)
     gst_rate = float(data.custom_data.get("gst_rate") or 0)
-    cgst = round(taxable * (gst_rate / 2) / 100, 2) if gst_rate else 0
+    cgst = round(float(taxable * (gst_rate / 2) / 100), 2) if gst_rate else 0
     sgst = cgst
-    grand = round(taxable + cgst + sgst, 2)
+    grand = round(float(taxable + cgst + sgst), 2)
+    
+    # WORKFLOW LOGIC: Invoices > 50,000 require signature
+    wf_state = "Draft"
+    status = data.custom_data.get("status", "Draft")
+    if grand > 50000:
+        wf_state = "Pending Approval"
+        status = "Locked" # Cannot submit while locked
     
     inv = Invoice(
         id=inv_id, customer=data.customer, date=data.date, 
-        amount=total, grand_total=grand, status=data.custom_data.get("status", "Draft"), 
+        amount=total, grand_total=grand, 
+        status=status, workflow_state=wf_state,
         tenant_id=user.tenant_id, 
         custom_data={
             "discount": discount, "gst_rate": gst_rate, 
@@ -321,7 +478,7 @@ class PurchaseOrderCreate(BaseModel):
 
 @app.post("/api/purchasing/orders")
 def create_purchasing(data: PurchaseOrderCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    po_id = f"PO-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}"
+    po_id = f"PO-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}"
     total = sum([(i.get("qty", 0) * i.get("rate", 0)) for i in data.items])
     po = PurchaseOrder(id=po_id, vendor=data.vendor, date=data.date, items=len(data.items), total=total, status="Ordered", tenant_id=user.tenant_id)
     db.add(po)
@@ -345,7 +502,7 @@ def list_employees(db: Session = Depends(get_db), user: User = Depends(get_curre
 
 @app.post("/api/hr/employees")
 def add_employee(data: EmployeeCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    emp_id = f"EMP-{str(uuid.uuid4())[:4].upper()}"
+    emp_id = f"EMP-{uuid.uuid4().hex[:4].upper()}"
     emp = Employee(
         id=emp_id, tenant_id=user.tenant_id,
         name=data.name, role=data.role, dept=data.dept, salary=data.salary, joining=data.joining, status="Active"
@@ -419,7 +576,7 @@ def get_revenue_chart(db: Session = Depends(get_db), user: User = Depends(get_cu
 @app.get("/api/dashboard/inventory-chart")
 def get_inventory_chart(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     # Real query: group by category
-    cats = db.query(Product.category, func.count(Product.id)).filter(Product.tenant_id == user.tenant_id).group_by(Product.category).all()
+    cats = db.query(Product.category, func.count(Product.sku)).filter(Product.tenant_id == user.tenant_id).group_by(Product.category).all()
     return [{"name": c[0] or "Uncategorized", "value": c[1]} for c in cats]
 
 @app.get("/api/dashboard/recent-activity")
@@ -557,13 +714,13 @@ def get_quotation(q_id: str, db: Session = Depends(get_db), user: User = Depends
 
 @app.post("/api/sales/quotations")
 def create_quotation(data: QuotationCreateSchema, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    q_id = f"QTN-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}"
+    q_id = f"QTN-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}"
     total = sum([item.get("qty",0) * item.get("rate",0) for item in data.items])
     disc = sum([item.get("qty",0)*item.get("rate",0)*(item.get("disc_pct",0)/100) for item in data.items])
     taxable = max(total - disc, 0)
     gst_rate = float(data.custom_data.get("gst_rate") or 0)
-    cgst = round(taxable*(gst_rate/2)/100, 2) if gst_rate else 0
-    grand = round(taxable + cgst*2, 2)
+    cgst = round(float(taxable*(gst_rate/2)/100), 2) if gst_rate else 0
+    grand = round(float(taxable + cgst*2), 2)
     q = Quotation(id=q_id, customer=data.customer, date=data.date, valid_till=data.valid_till, amount=total, grand_total=grand, status=data.custom_data.get("status","Draft"), tenant_id=user.tenant_id, custom_data={"discount": disc, "gst_rate": gst_rate, "cgst": cgst, "sgst": cgst, "taxable": taxable, **data.custom_data})
     db.add(q)
     for i in data.items:
@@ -778,7 +935,7 @@ def get_stock_entries(db: Session = Depends(get_db), user: User = Depends(get_cu
 @app.post("/api/stock/entries")
 def create_stock_entry(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     items = data.pop("items", [])
-    se = StockEntry(**data, id=f"SE-{str(uuid.uuid4())[:6].upper()}", tenant_id=user.tenant_id)
+    se = StockEntry(**data, id=f"SE-{uuid.uuid4().hex[:6].upper()}", tenant_id=user.tenant_id)
     db.add(se)
     for i in items:
         db.add(StockEntryItem(**i, parent_id=se.id))
@@ -813,7 +970,7 @@ def get_leads(db: Session = Depends(get_db), user: User = Depends(get_current_us
 
 @app.post("/api/crm/leads")
 def create_lead(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    l = Lead(**data, id=f"LEAD-{str(uuid.uuid4())[:4].upper()}", tenant_id=user.tenant_id)
+    l = Lead(**data, id=f"LEAD-{uuid.uuid4().hex[:4].upper()}", tenant_id=user.tenant_id)
     db.add(l); db.commit(); db.refresh(l)
     return l
 
@@ -835,7 +992,7 @@ def get_material_requests(db: Session = Depends(get_db), user: User = Depends(ge
 @app.post("/api/purchasing/requests")
 def create_material_request(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     items = data.pop("items", [])
-    mr = MaterialRequest(**data, id=f"MR-{str(uuid.uuid4())[:4].upper()}", tenant_id=user.tenant_id)
+    mr = MaterialRequest(**data, id=f"MR-{uuid.uuid4().hex[:4].upper()}", tenant_id=user.tenant_id)
     db.add(mr)
     for i in items:
         db.add(MaterialRequestItem(**i, parent_id=mr.id))
@@ -889,7 +1046,7 @@ def get_purchase_receipt(pr_id: str, db: Session = Depends(get_db), user: User =
 @app.post("/api/sales/orders")
 def create_sales_order(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     items = data.pop("items", [])
-    so = SalesOrder(**data, id=f"SO-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}", tenant_id=user.tenant_id)
+    so = SalesOrder(**data, id=f"SO-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}", tenant_id=user.tenant_id)
     db.add(so)
     for i in items:
         db.add(SalesOrderItem(**i, parent_id=so.id))
@@ -929,7 +1086,7 @@ def get_purchase_order(po_id: str, db: Session = Depends(get_db), user: User = D
 @app.post("/api/purchasing/orders")
 def create_purchase_order(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     items = data.pop("items", [])
-    po = PurchaseOrder(**data, id=f"PO-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}", tenant_id=user.tenant_id)
+    po = PurchaseOrder(**data, id=f"PO-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}", tenant_id=user.tenant_id)
     db.add(po)
     for i in items: db.add(PurchaseOrderItem(**i, parent_id=po.id))
     db.commit(); db.refresh(po); return po
@@ -968,10 +1125,11 @@ def delete_asset(a_id: str, db: Session = Depends(get_db), user: User = Depends(
 @app.post("/api/purchasing/receipts")
 def create_purchase_receipt(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     items = data.pop("items", [])
-    pr = PurchaseReceipt(**data, id=f"PR-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}", tenant_id=user.tenant_id)
+    pr = PurchaseReceipt(**data, id=f"PR-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}", tenant_id=user.tenant_id)
     db.add(pr)
     
-    total_asset_value = 0.0
+    total_asset_value: float = 0.0
+    total_asset_value += 0.0
     
     for i in items:
         db.add(PurchaseReceiptItem(**i, parent_id=pr.id))
@@ -1139,7 +1297,7 @@ def create_product(data: dict, db: Session = Depends(get_db), user: User = Depen
 @app.post("/api/sales/invoices")
 def create_invoice(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     items = data.pop("items", [])
-    inv_id = f"INV-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}"
+    inv_id = f"INV-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}"
     total = sum([fill_zero(i.get("qty",0)) * fill_zero(i.get("rate",0)) for i in items])
     
     # Tax Calculation
@@ -1211,7 +1369,7 @@ def delete_warehouse(wh_id: str, db: Session = Depends(get_db), user: User = Dep
 def create_payment(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     inv_ref = data.get("invoice_ref")
     p = PaymentEntry(
-        id=f"PAY-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}",
+        id=f"PAY-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}",
         date=data.get("date", datetime.now().strftime("%Y-%m-%d")),
         party_type=data.get("party_type"),
         party=data.get("party"),
@@ -1351,7 +1509,7 @@ def engine_calculate_taxes(data: dict, user: User = Depends(get_current_user_tok
 
 
 @app.get("/api/engine/stock_balance/{item_code}")
-def engine_stock_balance(item_code: str, warehouse: str = None, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+def engine_stock_balance(item_code: str, warehouse: str | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     """
     Ported from ERPNext: stock/utils.py → get_stock_balance()
     Returns the live running qty (from StockLedger) for the given item.
@@ -1375,13 +1533,31 @@ def engine_validate_ledger(data: dict, db: Session = Depends(get_db), user: User
         raise HTTPException(400, "gl_map is required")
     total_debit  = sum(float(e.get("debit", 0))  for e in gl_map)
     total_credit = sum(float(e.get("credit", 0)) for e in gl_map)
-    diff = round(abs(total_debit - total_credit), 4)
+    diff = round(float(abs(total_debit - total_credit)), 4)
     is_balanced = diff <= 0.5
     return {
         "is_balanced": is_balanced,
-        "total_debit": round(total_debit, 2),
-        "total_credit": round(total_credit, 2),
+        "total_debit": round(float(total_debit), 2),
+        "total_credit": round(float(total_credit), 2),
         "difference": diff,
         "allowance": 0.5,
         "message": "✅ GL entries are balanced." if is_balanced else f"❌ Imbalance of ₹{diff:.4f} detected."
     }
+
+# --- NATIVE SUMA LOGIC ENDPOINTS ---
+@app.post("/api/engine/calculate_tax", tags=["SUMA Native Engine"])
+def calculate_tax_native(payload: dict, user: User = Depends(get_current_user_token)):
+    """
+    SUMA Native Engine: Fully translated from ERPNext logic.
+    Calculates Taxes and Totals locally using the adapted source in engine.py.
+    """
+    items = payload.get("items", [])
+    taxes = payload.get("taxes", [])
+    if not items:
+        raise HTTPException(400, "items are required")
+    calc = TaxesAndTotals(items, taxes)
+    return calc.to_dict()
+
+if __name__ == '__main__':
+    import uvicorn
+    uvicorn.run(app, host='0.0.0.0', port=8000)

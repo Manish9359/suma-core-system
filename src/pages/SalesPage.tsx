@@ -3,12 +3,16 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Plus, Search, Filter, Download, Printer, Trash2, FileText, Package, Receipt } from "lucide-react";
 import { Link } from "react-router-dom";
-import { salesApi, crmApi, inventoryApi } from "@/lib/api";
+import { salesApi, crmApi, inventoryApi, workflowApi } from "@/lib/api";
+import { CheckCircle, Lock } from "lucide-react";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { LoadingState, ErrorState, EmptyState } from "@/components/LoadingState";
 import { RecordModal, RecordField } from "@/components/RecordModal";
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { engineApi } from "@/lib/api";
+import { toast } from "sonner";
+import { Loader2, RefreshCcw } from "lucide-react";
 
 const statusMap: Record<string, string> = {
   Paid: "status-badge status-active",
@@ -16,6 +20,13 @@ const statusMap: Record<string, string> = {
   Overdue: "status-badge bg-destructive/10 text-destructive",
   Sent: "status-badge status-open",
   Draft: "status-badge status-closed",
+  Locked: "status-badge bg-orange-100 text-orange-700 border-orange-200",
+};
+
+const workflowMap: Record<string, string> = {
+  "Approved": "status-badge status-active",
+  "Pending Approval": "status-badge status-warning",
+  "Draft": "status-badge status-closed",
 };
 
 export default function SalesPage() {
@@ -145,32 +156,75 @@ export default function SalesPage() {
           {!invoices || invoices.length === 0 ? <EmptyState title="No invoices yet" /> : (
             <Card className="border-none shadow-md overflow-hidden">
               <CardContent className="p-0">
-                <table className="data-table">
-                  <thead className="bg-muted/50"><tr><th>Invoice #</th><th>Customer</th><th>Date</th><th>Amount</th><th>Status</th><th>Actions</th></tr></thead>
-                  <tbody>
-                    {invoices.map((inv) => (
-                      <tr key={inv.id} className="hover:bg-accent/5 transition-colors">
-                        <td className="font-mono text-xs font-medium">{inv.id}</td>
-                        <td>{inv.customer}</td>
-                        <td className="text-muted-foreground">{inv.date}</td>
-                        <td className="font-semibold">{inv.amount}</td>
-                        <td><span className={statusMap[inv.status]}>{inv.status}</span></td>
-                        <td className="flex gap-1 justify-end items-center">
-                          <Button variant="ghost" size="sm" className="text-xs" onClick={async () => {
-                            try {
-                              const detailed = await salesApi.getInvoice(inv.id);
-                              setEditingInvoice({ ...detailed, ...detailed.custom_data, status: detailed.status });
-                              setModalOpen(true);
-                            } catch (e) { console.error(e); }
-                          }}>Edit</Button>
-                          <Link to={`/print/invoice/${inv.id}`} target="_blank"><Button variant="ghost" size="icon" className="h-8 w-8 text-accent"><Printer className="h-3.5 w-3.5" /></Button></Link>
-                          <Button variant="ghost" size="icon" className="text-destructive h-8 w-8" onClick={async () => {
-                            if (confirm(`Delete Invoice ${inv.id}?`)) { await salesApi.deleteInvoice(inv.id); refetchInv(); }
-                          }}><Trash2 className="h-3.5 w-3.5" /></Button>
-                        </td>
+                <table className="w-full text-sm">
+                    <thead className="bg-slate-50 border-b">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-500 uppercase text-[10px]">Invoice #</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-500 uppercase text-[10px]">Customer</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-500 uppercase text-[10px]">Date</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-500 uppercase text-[10px]">Amount</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-500 uppercase text-[10px]">Status</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-500 uppercase text-[10px]">Workflow</th>
+                        <th className="px-4 py-3 text-right font-semibold text-slate-500 uppercase text-[10px]">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
+                    </thead>
+                    <tbody>
+                      {invoices?.map((inv: any) => (
+                        <tr key={inv.id} className="border-b last:border-0 hover:bg-slate-50 transition-colors">
+                          <td className="px-4 py-3 font-medium text-slate-900">{inv.id}</td>
+                          <td className="px-4 py-3 text-slate-600">{inv.customer}</td>
+                          <td className="px-4 py-3 text-slate-600">{inv.date}</td>
+                          <td className="px-4 py-3 text-blue-700 font-bold">₹{Number(inv.grand_total || inv.amount).toLocaleString()}</td>
+                          <td className="px-4 py-3">
+                            <span className={statusMap[inv.status] || "status-badge"}>{inv.status}</span>
+                          </td>
+                          <td className="px-4 py-3">
+                            {inv.workflow_state && (
+                              <span className={workflowMap[inv.workflow_state] || "status-badge"}>
+                                {inv.workflow_state}
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right flex items-center justify-end gap-1">
+                            {inv.workflow_state === "Pending Approval" && (user?.role === "Admin" || user?.role === "Manager") && (
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="h-8 text-[11px] gap-1.5 border-green-200 bg-green-50 text-green-700 hover:bg-green-100"
+                                onClick={async () => {
+                                  try {
+                                    await workflowApi.approve("Sales Invoice", inv.id);
+                                    toast.success("Invoice Digitally Signed & Approved");
+                                    refetchInv();
+                                  } catch (e: any) { toast.error(e.message); }
+                                }}
+                              >
+                                <CheckCircle className="h-3 w-3" /> Sign
+                              </Button>
+                            )}
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              className="h-8 text-[11px]"
+                              onClick={async () => {
+                                try {
+                                  const detailed = await salesApi.getInvoice(inv.id);
+                                  setEditingInvoice({ ...detailed, ...detailed.custom_data, status: detailed.status });
+                                  setModalOpen(true);
+                                } catch (e) { console.error(e); }
+                              }}
+                              disabled={inv.status === "Locked"}
+                            >
+                              Edit
+                            </Button>
+                            <Link to={`/print/invoice/${inv.id}`} target="_blank"><Button variant="ghost" size="icon" className="h-8 w-8 text-accent"><Printer className="h-3.5 w-3.5" /></Button></Link>
+                            <Button variant="ghost" size="icon" className="text-destructive h-8 w-8" onClick={async () => {
+                              if (confirm(`Delete Invoice ${inv.id}?`)) { await salesApi.deleteInvoice(inv.id); refetchInv(); }
+                            }}><Trash2 className="h-3.5 w-3.5" /></Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
                 </table>
               </CardContent>
             </Card>
@@ -221,14 +275,39 @@ export default function SalesPage() {
         </TabsContent>
       </Tabs>
 
+      <div className="fixed bottom-10 right-10">
+         {(modalOpen || qtnModalOpen) && (
+           <Button 
+            onClick={async () => {
+              const data = modalOpen ? (window as any)._lastFormData : (window as any)._lastFormData;
+              if(!data) return;
+              toast.info("Syncing with ERPNext Engine...");
+              try {
+                const res = await engineApi.calculateTax({
+                  item_code: data.items?.[0]?.item_code || "ITEM-01",
+                  net_total: data._amount || 0,
+                  items: data.items,
+                  taxes: data.taxes || []
+                });
+                toast.success("Engine Sync Complete");
+                // The modal will refresh next time data is pushed
+              } catch (e: any) { toast.error(e.message); }
+            }}
+            className="rounded-full h-12 w-12 shadow-2xl bg-indigo-600 hover:bg-indigo-700 animate-pulse"
+           >
+             <RefreshCcw className="h-6 w-6 text-white" />
+           </Button>
+         )}
+      </div>
+
       <RecordModal
         open={modalOpen}
         onOpenChange={(val) => { setModalOpen(val); if (!val) setEditingInvoice(null); }}
         title={editingInvoice ? "Edit Invoice" : "Create New Invoice"}
-        description="Add customer details and line items"
+        description="Add customer details and line items (Engine Sync Available)"
         initialData={editingInvoice || { gst_rate: 18 }}
         fields={invoiceFields}
-        onChangeData={calcChange}
+        onChangeData={(d) => { (window as any)._lastFormData = d; return calcChange(d); }}
         onSubmit={async (data) => {
           const payload = buildPayload(data);
           if (editingInvoice) await salesApi.updateInvoice(editingInvoice.id, payload);
@@ -244,7 +323,7 @@ export default function SalesPage() {
         description="Add customer and line items for quotation"
         initialData={editingQtn || { gst_rate: 0 }}
         fields={qtnFields}
-        onChangeData={calcChange}
+        onChangeData={(d) => { (window as any)._lastFormData = d; return calcChange(d); }}
         onSubmit={async (data) => {
           const payload = buildPayload(data);
           if (editingQtn) await salesApi.updateQuotation(editingQtn.id, payload);

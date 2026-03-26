@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Text, JSON
+from sqlalchemy import Column, Integer, String, Float, Boolean, ForeignKey, DateTime, Text, JSON, Table
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from .database import Base
@@ -16,8 +16,62 @@ class User(Base):
     username = Column(String, unique=True, nullable=False)
     password = Column(String, nullable=False)
     role = Column(String, default="Employee") # Admin, Manager, Employee
+    status = Column(String, default="Active") # Active, Disabled
     tenant_id = Column(Integer, ForeignKey("tenants.id"))
     tenant = relationship("Tenant")
+    roles = relationship("Role", secondary="user_roles", back_populates="users")
+
+# --- RBAC (SUMA NATIVE) ---
+user_roles = Table(
+    "user_roles",
+    Base.metadata,
+    Column("user_id", Integer, ForeignKey("users.id")),
+    Column("role_id", Integer, ForeignKey("roles.id")),
+)
+
+class Role(Base):
+    __tablename__ = "roles"
+    id = Column(Integer, primary_key=True)
+    name = Column(String, unique=True, nullable=False) # e.g., 'Accountant', 'Sales Manager'
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+    users = relationship("User", secondary=user_roles, back_populates="roles")
+    permissions = relationship("Permission", back_populates="role", cascade="all, delete-orphan")
+
+class Permission(Base):
+    __tablename__ = "permissions"
+    id = Column(Integer, primary_key=True)
+    role_id = Column(Integer, ForeignKey("roles.id"))
+    doctype = Column(String, nullable=False) # e.g., 'Sales Invoice'
+    can_read = Column(Boolean, default=True)
+    can_write = Column(Boolean, default=False)
+    can_create = Column(Boolean, default=False)
+    can_delete = Column(Boolean, default=False)
+    can_submit = Column(Boolean, default=False)
+    can_cancel = Column(Boolean, default=False)
+    role = relationship("Role", back_populates="permissions")
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    title = Column(String)
+    message = Column(String)
+    type = Column(String) # Success, Warning, Error, Info
+    read = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class WorkflowSignature(Base):
+    __tablename__ = "workflow_signatures"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    doctype = Column(String) # Sales Invoice, Purchase Order, etc.
+    docname = Column(String)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    role = Column(String)
+    action = Column(String) # Approve, Reject
+    comment = Column(String, nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
 
 # --- CUSTOMIZATION (DocType/Custom Fields) ---
 class CustomField(Base):
@@ -78,6 +132,7 @@ class Invoice(Base):
     tax = Column(Float, default=0.0)
     grand_total = Column(Float, default=0.0)
     status = Column(String, default="Draft") # Draft, Submitted, Paid, Overdue
+    workflow_state = Column(String, default="Draft") # Draft, Pending Approval, Approved
     custom_data = Column(JSON, default={})
     tenant_id = Column(Integer, ForeignKey("tenants.id"))
 

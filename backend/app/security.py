@@ -43,3 +43,43 @@ def get_current_user_token(token: str = Depends(oauth2_scheme), db: Session = De
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     return user
+
+def has_permission(user, doctype: str, action: str = 'read', db: Session = None) -> bool:
+    """
+    Checks if a SUMA Native User has permissions for a given module/doctype.
+    Admins are always allowed.
+    Other users are checked against their assigned Role(s) in the Permission table.
+    """
+    if user.role == "Admin": return True
+    if not db: return False
+    
+    from .models import Permission, Role
+    
+    # Check primary role string first
+    primary_role = db.query(Role).filter(Role.name == user.role, Role.tenant_id == user.tenant_id).first()
+    roles_to_check = [primary_role] if primary_role else []
+    
+    # Add any secondary assigned roles
+    roles_to_check.extend(user.roles)
+    
+    if not roles_to_check:
+        return False # No roles defined to check against
+        
+    role_ids = [r.id for r in roles_to_check if r and hasattr(r, 'id')]
+    
+    perms = db.query(Permission).filter(
+        Permission.role_id.in_(role_ids),
+        Permission.doctype == doctype
+    ).all()
+    
+    if not perms: return False
+    
+    # If any of their roles allows it, they have permission
+    if action == 'read': return any(p.can_read for p in perms)
+    if action == 'write': return any(p.can_write for p in perms)
+    if action == 'create': return any(p.can_create for p in perms)
+    if action == 'delete': return any(p.can_delete for p in perms)
+    if action == 'submit': return any(p.can_submit for p in perms)
+    if action == 'cancel': return any(p.can_cancel for p in perms)
+    
+    return False

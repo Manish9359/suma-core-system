@@ -12,6 +12,10 @@ Ported modules:
   - manufacturing/doctype/work_order → WorkOrderScheduler
   - stock/reorder_item.py            → ReorderEngine
   - accounts/deferred_revenue.py     → DeferredRevenueEngine
+  - selling/doctype/quotation        → SellingWorkflowEngine
+  - buying/doctype/purchase_order    → BuyingWorkflowEngine
+  - hr/doctype/salary_slip           → HREngine
+  - projects/doctype/project         → ProjectEngine
 """
 
 from math import ceil
@@ -21,8 +25,19 @@ from sqlalchemy import func
 from datetime import datetime
 from .models import (
     LedgerEntry, StockLedger, Product, Invoice, InvoiceItem,
-    Account, PurchaseOrder
+    Account, PurchaseOrder, Quotation, SalesOrder, SalesOrderItem,
+    Employee, Attendance, SalarySlip, Task, BOM, BOMItem
 )
+
+def parse(date_str: str) -> datetime:
+    """Helper to parse various date formats safely."""
+    if not date_str: return datetime.utcnow()
+    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(date_str, fmt)
+        except ValueError:
+            continue
+    return datetime.utcnow()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -421,6 +436,8 @@ class StockEngine:
                         f"Current: {product.stock}, Attempted: {qty}"
                     )
                 product.stock = new_stock
+                # Auto-update 'low' status (e.g., threshold < 5)
+                product.low = True if new_stock < 5 else False
 
             # ── 2. Write Stock Ledger row ─────────────────────────────────────
             self.db.add(StockLedger(
@@ -532,7 +549,7 @@ class InvoiceEngine:
                   "qty": -item["qty"], "rate": rate}],
                 voucher_type="Invoice",
                 voucher_no=inv_id,
-                allow_negative_stock=True,
+                allow_negative_stock=False,
             )
 
         # ── GL postings (ERPNext pattern) ─────────────────────────────────────
@@ -601,9 +618,8 @@ class BOMExploder:
             return []
 
         bom = self.db.query(BOM).filter_by(
-            product_id=finished_item_sku,
+            item_code=finished_item_sku,
             tenant_id=self.tenant_id,
-            is_active=True,
         ).first()
 
         if not bom:
@@ -619,7 +635,7 @@ class BOMExploder:
                 "is_leaf":      True,
             }]
 
-        bom_items = self.db.query(BOMItem).filter_by(bom_id=bom.id).all()
+        bom_items = self.db.query(BOMItem).filter_by(parent_id=bom.id).all()
         flat_materials: dict[str, dict] = {}
 
         for bom_item in bom_items:
@@ -628,15 +644,14 @@ class BOMExploder:
 
             # Check if this component itself has a BOM (sub-assembly)
             sub_bom = self.db.query(BOM).filter_by(
-                product_id=bom_item.material_id,
+                item_code=bom_item.item_code,
                 tenant_id=self.tenant_id,
-                is_active=True,
             ).first()
 
             if sub_bom:
                 # Recurse: explode the sub-assembly
                 sub_materials = self.explode(
-                    bom_item.material_id, component_qty, depth + 1, max_depth
+                    bom_item.item_code, component_qty, depth + 1, max_depth
                 )
                 for sub in sub_materials:
                     code = sub["item_code"]
@@ -647,9 +662,9 @@ class BOMExploder:
             else:
                 # Leaf component
                 product = self.db.query(Product).filter_by(
-                    sku=bom_item.material_id, tenant_id=self.tenant_id
+                    sku=bom_item.item_code, tenant_id=self.tenant_id
                 ).first()
-                code = bom_item.material_id
+                code = bom_item.item_code
                 rate = float(product.cost if product and product.cost else 0)
                 if code in flat_materials:
                     flat_materials[code]["required_qty"] += component_qty
@@ -959,3 +974,130 @@ class DeferredRevenueEngine:
             "total_contract":   total_amount,
             "remaining":        round(total_amount - already_booked - amount, 2),
         }
+
+# --- 9. SELLING FLOW ENGINE ---
+class SellingWorkflowEngine:
+    """
+    Ported logic from: selling/doctype/quotation/quotation.py
+    Handles the conversion of Quotation → Sales Order → Sales Invoice.
+    """
+    def __init__(self, db: Session, tenant_id: int):
+        self.db = db
+        self.tenant_id = tenant_id
+
+    def validate_quotation_validity(self, quotation_id: str):
+        # Ported: valid_till check
+        quo = self.db.query(Quotation).filter_by(id=quotation_id, tenant_id=self.tenant_id).first()
+        if quo and quo.valid_till:
+            exp_date = parse(quo.valid_till)
+            if exp_date < datetime.utcnow():
+                return False, "Validity period of this quotation has ended."
+        return True, "OK"
+
+    def get_quotation_ordered_items_map(self, quotation_id: str) -> dict[str, float]:
+        # Implementation of get_ordered_items() from quotation.py
+        # Sums up quantity already used in Sales Orders against this quotation
+        results = self.db.query(
+            SalesOrderItem.item_code,
+            func.sum(SalesOrderItem.qty)
+        ).filter(
+            SalesOrderItem.parent_id.in_(
+                self.db.query(SalesOrder.id).filter_by(custom_data={'prevdoc_docname': quotation_id})
+            )
+        ).group_by(SalesOrderItem.item_code).all()
+        return {r[0]: float(r[1]) for r in results}
+
+# --- 10. BUYING FLOW ENGINE ---
+class BuyingWorkflowEngine:
+    """
+    Ported logic from: buying/doctype/purchase_order/purchase_order.py
+    Handles the mapping and state management for PRs and Invoices.
+    """
+    def __init__(self, db: Session, tenant_id: int):
+        self.db = db
+        self.tenant_id = tenant_id
+
+    def calculate_landed_cost(self, items: list[dict], charges: list[dict]) -> list[dict]:
+        """
+        Ported from: update_landed_cost_value()
+        Apportions additional charges (freight, insurance) to item cost based on value.
+        """
+        total_value = sum(item['qty'] * item['rate'] for item in items)
+        total_charges = sum(charge['amount'] for charge in charges)
+        
+        if total_value == 0:
+            return items
+            
+        for item in items:
+            item_value = item['qty'] * item['rate']
+            proportion = item_value / total_value
+            item_charge = total_charges * proportion
+            # Landed cost per unit
+            item['landed_cost'] = round((item_value + item_charge) / item['qty'], 2)
+            
+        return items
+
+# --- 11. HR CALCULATION ENGINE ---
+class HREngine:
+    """
+    Ported logic from: erpnext/hr/doctype/salary_slip/salary_slip.py
+    Processes attendance and calculates payroll summaries.
+    """
+    def __init__(self, db: Session, tenant_id: int):
+        self.db = db
+        self.tenant_id = tenant_id
+
+    def calculate_salary(self, employee_id: str, month: int, year: int) -> dict:
+        """
+        Simplified Salary Slip logic:
+          Base Salary - (LWP * Daily Rate) + Bonus/OT
+        """
+        employee = self.db.query(Employee).filter_by(id=employee_id, tenant_id=self.tenant_id).first()
+        if not employee:
+            return {"error": "Employee not found"}
+
+        # Calculate LWP (Leave Without Pay)
+        # Ported status check: Absent, Half Day
+        days_in_month = 30 # Default
+        attendances = self.db.query(Attendance).filter(
+            Attendance.employee_id == employee_id,
+            Attendance.date.like(f"{year}-{month:02d}-%")
+        ).all()
+        
+        lwp_days = sum(1.0 for a in attendances if a.status == 'Absent')
+        lwp_days += sum(0.5 for a in attendances if a.status == 'Half Day')
+        
+        daily_rate = employee.salary / days_in_month
+        lwp_deduction = round(lwp_days * daily_rate, 2)
+        net_pay = round(employee.salary - lwp_deduction, 2)
+        
+        return {
+            "employee_id":   employee_id,
+            "base_salary":   employee.salary,
+            "lwp_days":      lwp_days,
+            "lwp_deduction": lwp_deduction,
+            "net_pay":       net_pay
+        }
+
+# --- 12. PROJECT ENGINE ---
+class ProjectEngine:
+    """
+    Ported logic from: erpnext/projects/doctype/project/project.py
+    Calculates project health and task-based progress.
+    """
+    def __init__(self, db: Session, tenant_id: int):
+        self.db = db
+        self.tenant_id = tenant_id
+
+    def calculate_progress(self, project_id: str) -> float:
+        """
+        Ported from: update_percent_complete()
+        % Complete = (Sum of completed tasks) / (Total tasks)
+        """
+        tasks = self.db.query(Task).filter_by(project_id=project_id, tenant_id=self.tenant_id).all()
+        if not tasks:
+            return 0.0
+            
+        completed_tasks = [t for t in tasks if t.status in ['Completed', 'Closed']]
+        progress = (len(completed_tasks) / len(tasks)) * 100
+        return round(progress, 2)
