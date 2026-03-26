@@ -258,10 +258,8 @@ export default function SettingsPage() {
             </Card>
           </TabsContent>
 
-          <TabsContent value="bank" className="focus-visible:outline-none">
-            {/* Same as before... */}
-          </TabsContent>
         </form>
+      </Tabs>
       <RecordModal
         open={userModalOpen}
         onOpenChange={setUserModalOpen}
