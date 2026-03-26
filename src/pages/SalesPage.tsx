@@ -43,8 +43,10 @@ export default function SalesPage() {
 
   const itemColumns = [
     {
-      name: "item_code", label: "Item", type: "select" as const, options: products?.map(p => ({
-        label: p.name, value: p.sku,
+      name: "item_code", label: "Item", type: "select" as const, options: products?.map((p: any) => ({
+        label: p.stock > 0 ? `${p.name} (Qty: ${p.stock})` : `[Out of Stock] ${p.name}`,
+        value: p.sku,
+        disabled: p.stock <= 0,
         autoFill: { qty: 1, rate: p.sell, disc_pct: (p.cost && p.sell) ? parseFloat((((Number(p.sell) - Number(p.cost)) / Number(p.sell)) * 100).toFixed(1)) : 0 }
       })) || []
     },

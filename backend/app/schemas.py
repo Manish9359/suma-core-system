@@ -47,3 +47,15 @@ class EmployeeCreate(BaseModel):
     dept: str
     salary: float
     joining: str
+
+class CompanySettingsUpdate(BaseModel):
+    company_name: Optional[str] = None
+    gstin: Optional[str] = None
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    bank_name: Optional[str] = None
+    bank_account: Optional[str] = None
+    bank_ifsc: Optional[str] = None
+    bank_branch: Optional[str] = None
+    terms: Optional[str] = None

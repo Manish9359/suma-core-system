@@ -9,9 +9,14 @@ from app.models import (Tenant, User, Role, Permission, Notification, WorkflowSi
 from app.schemas import LoginReq, TokenRes, CustomerCreate, ProductCreate, InvoiceCreate, EmployeeCreate
 from app.engine import TaxesAndTotals, GeneralLedger, StockEngine, BOMExploder, WorkOrderScheduler, ReorderEngine, DeferredRevenueEngine
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional, Dict, Any
+from collections import defaultdict
 from datetime import datetime
 from app.security import hash_password, verify_password, create_token, get_current_user_token, has_permission
+from app.schemas import (
+    LoginReq, TokenRes, CustomerCreate, ProductCreate, 
+    InvoiceCreate, EmployeeCreate, CompanySettingsUpdate
+)
 
 # --- NATIVE SUMA LOGIC (Refactored from ERPNext) ---
 # We no longer rely on external 'frappe' or 'erpnext' packages.
@@ -48,6 +53,32 @@ def login(data: LoginReq, db: Session = Depends(get_db)):
 @app.get("/api/auth/me")
 def get_me(user: User = Depends(get_current_user_token)):
     return {"id": user.id, "email": user.username, "name": str(user.username.split("@")[0]).capitalize(), "role": user.role, "status": user.status}
+
+# ─── COMPANY SETTINGS ───
+@app.get("/api/settings/company")
+def get_company_settings(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    conf = db.query(CompanySettings).filter(CompanySettings.tenant_id == user.tenant_id).first()
+    if not conf:
+        # Default seed
+        conf = CompanySettings(tenant_id=user.tenant_id)
+        db.add(conf)
+        db.commit()
+    return conf
+
+@app.put("/api/settings/company")
+def update_company_settings(data: CompanySettingsUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    if user.role != "Admin": raise HTTPException(403, "Admin access required")
+    conf = db.query(CompanySettings).filter(CompanySettings.tenant_id == user.tenant_id).first()
+    if not conf:
+        conf = CompanySettings(tenant_id=user.tenant_id)
+        db.add(conf)
+    
+    # Map all allowed fields
+    for k, v in data.dict(exclude_unset=True).items():
+        setattr(conf, k, v)
+        
+    db.commit()
+    return {"status": "success"}
 
 # ─── USER MANAGEMENT (ADMIN) ───
 @app.get("/api/system/users")
@@ -219,13 +250,48 @@ def get_kpis(user: User = Depends(get_current_user_token), db: Session = Depends
     invoices = db.query(Invoice).filter(Invoice.tenant_id == t_id).count()
     low_stock = db.query(Product).filter(Product.tenant_id == t_id, Product.stock < 10).count()
     return {
-        "total_sales": f"₹{total_sales:,.2f}",
-        "monthly_revenue": f"₹{total_sales * 0.4:,.2f}", # Mock monthly
+        "total_sales": f"₹{float(total_sales):,.2f}",
+        "monthly_revenue": f"₹{float(total_sales):,.2f}",
         "pending_invoices": db.query(Invoice).filter(Invoice.tenant_id == t_id, Invoice.status == "Draft").count(),
         "low_stock_items": low_stock,
-        "sales_change": "+14%", "revenue_change": "+8%", "invoices_change": "+2%", "stock_change": "-5%",
+        "sales_change": "0%", "revenue_change": "0%", "invoices_change": "0%", "stock_change": "0%",
         "active_amcs": 0, "open_tickets": 0, "amc_change": "0", "tickets_change": "0"
     }
+
+@app.get("/api/dashboard/sales-chart")
+def get_sales_chart(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    invs = db.query(Invoice).filter(Invoice.tenant_id == user.tenant_id, Invoice.status != "Draft").all()
+    months: Dict[str, float] = defaultdict(float)
+    for i in invs:
+        try:
+            m = datetime.strptime(str(i.date), "%Y-%m-%d").strftime("%b")
+            months[m] += float(i.amount or 0)
+        except: pass
+    return [{"month": k, "value": v} for k, v in months.items()] if months else []
+
+@app.get("/api/dashboard/revenue-chart")
+def get_revenue_chart(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    ledgers = db.query(LedgerEntry).filter(LedgerEntry.tenant_id == user.tenant_id, LedgerEntry.account == "4100").all()
+    months: Dict[str, float] = defaultdict(float)
+    for l in ledgers:
+        try:
+            m = datetime.strptime(str(l.date), "%Y-%m-%d").strftime("%b")
+            months[m] += float(l.credit or 0)
+        except: pass
+    return [{"month": k, "value": v} for k, v in months.items()] if months else []
+
+@app.get("/api/dashboard/inventory-chart")
+def get_inventory_chart(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    prods = db.query(Product).filter(Product.tenant_id == user.tenant_id, Product.stock > 0).limit(5).all()
+    return [{"name": p.name, "value": float(p.stock)} for p in prods]
+
+@app.get("/api/dashboard/recent-activity")
+def get_recent_activity(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    recent_invs = db.query(Invoice).filter(Invoice.tenant_id == user.tenant_id).order_by(Invoice.id.desc()).limit(3).all()
+    recent_leads = db.query(Lead).filter(Lead.tenant_id == user.tenant_id).order_by(Lead.id.desc()).limit(3).all()
+    acts = [{"text": f"Invoice {i.id} approved", "time": str(i.date)} for i in recent_invs]
+    acts += [{"text": f"New Lead: {l.name}", "time": "Recently"} for l in recent_leads]
+    return acts[:6]
 
 # ─── CUSTOMIZATION (DocTypes fields) ───
 @app.get("/api/system/fields/{module_name}")

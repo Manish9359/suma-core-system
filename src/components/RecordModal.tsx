@@ -95,7 +95,8 @@ function DynamicTableInput({ field, value = [], onChange }: { field: RecordField
                         {c.options?.map((opt: any) => {
                           const val = typeof opt === "string" ? opt : opt.value;
                           const lbl = typeof opt === "string" ? opt : opt.label;
-                          return <SelectItem key={val} value={val}>{lbl}</SelectItem>
+                          const dis = typeof opt === "object" ? !!opt.disabled : false;
+                          return <SelectItem key={val} value={val} disabled={dis} className={dis ? "text-red-500/50" : ""}>{lbl}</SelectItem>
                         })}
                       </SelectContent>
                     </Select>
@@ -188,7 +189,8 @@ export function RecordModal({ open, onOpenChange, title, description, fields, on
                     {field.options?.map((opt: any) => {
                        const val = typeof opt === "string" ? opt : opt.value;
                        const lbl = typeof opt === "string" ? opt : opt.label;
-                       return <SelectItem key={val} value={val}>{lbl}</SelectItem>
+                       const dis = typeof opt === "object" ? !!opt.disabled : false;
+                       return <SelectItem key={val} value={val} disabled={dis} className={dis ? "text-red-500/50" : ""}>{lbl}</SelectItem>
                     })}
                   </SelectContent>
                 </Select>
