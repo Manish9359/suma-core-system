@@ -140,6 +140,26 @@ class Employee(Base):
     status = Column(String, default="Active")
     tenant_id = Column(Integer, ForeignKey("tenants.id"))
 
+class Attendance(Base):
+    __tablename__ = "attendance"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    employee_id = Column(String, ForeignKey("employees.id"))
+    date = Column(String)
+    status = Column(String) # Present, Absent, Half Day
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class SalarySlip(Base):
+    __tablename__ = "salary_slips"
+    id = Column(String, primary_key=True)
+    employee_id = Column(String, ForeignKey("employees.id"))
+    start_date = Column(String)
+    end_date = Column(String)
+    gross_pay = Column(Float, default=0.0)
+    deductions = Column(Float, default=0.0)
+    net_pay = Column(Float, default=0.0)
+    status = Column(String, default="Draft") # Draft, Submitted, Paid
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
 # --- WORKFLOW & DOC STATUS ---
 class WorkflowTask(Base):
     __tablename__ = "workflow_tasks"

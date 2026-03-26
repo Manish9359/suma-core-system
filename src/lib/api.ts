@@ -149,6 +149,7 @@ export const purchasingApi = {
   deleteOrder: (id: string) => api.delete(`/api/purchasing/orders/${id}`),
   getReceipts: () => api.get<any[]>("/api/purchasing/receipts"),
   getReceipt: (id: string) => api.get<any>(`/api/purchasing/receipts/${id}`),
+  createReceipt: (data: any) => api.post<any>("/api/purchasing/receipts", data),
 };
 
 export const accountingApi = {
@@ -165,6 +166,11 @@ export const hrApi = {
   updateEmployee: (id: string, data: Partial<Employee>) => api.put<Employee>(`/api/hr/employees/${id}`, data),
   deleteEmployee: (id: string) => api.delete(`/api/hr/employees/${id}`),
   getSummary: () => api.get<HRSummary>("/api/hr/summary"),
+  getAttendance: () => api.get<any[]>("/api/hr/attendance"),
+  markAttendance: (data: any) => api.post<any>("/api/hr/attendance", data),
+  getSalarySlips: () => api.get<any[]>("/api/hr/salary_slips"),
+  createSalarySlip: (data: any) => api.post<any>("/api/hr/salary_slips", data),
+  updateSalarySlip: (id: string, data: any) => api.put<any>(`/api/hr/salary_slips/${id}`, data),
 };
 
 export const serviceApi = {

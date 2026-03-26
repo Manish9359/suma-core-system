@@ -5,8 +5,9 @@ from sqlalchemy import func
 import uuid
 
 from app.database import engine, Base, get_db
-from app.models import Tenant, User, CustomField, Lead, Customer, Product, Invoice, InvoiceItem, Account, LedgerEntry, Employee, PurchaseOrder, WorkflowTask, CompanySettings, Quotation, QuotationItem, Warehouse, StockLedger, StockEntry, StockEntryItem, Supplier, Project, Task, SalesOrder, PurchaseReceipt, BOM, PaymentEntry
+from app.models import (Tenant, User, CustomField, Lead, Customer, Product, Invoice, InvoiceItem, Account, LedgerEntry, Employee, PurchaseOrder, PurchaseOrderItem, WorkflowTask, CompanySettings, Quotation, QuotationItem, Warehouse, StockLedger, StockEntry, StockEntryItem, Supplier, Project, Task, SalesOrder, SalesOrderItem, PurchaseReceipt, PurchaseReceiptItem, BOM, BOMItem, PaymentEntry, MaterialRequest, MaterialRequestItem, Asset, Issue, QualityInspection, Attendance, SalarySlip)
 from app.schemas import LoginReq, TokenRes, CustomerCreate, ProductCreate, InvoiceCreate, EmployeeCreate
+from app.engine import TaxesAndTotals, GeneralLedger, StockEngine
 from pydantic import BaseModel
 from typing import List
 from datetime import datetime
@@ -720,6 +721,55 @@ def delete_employee(id: str, db: Session = Depends(get_db), user: User = Depends
     if not e: raise HTTPException(404)
     db.delete(e); db.commit(); return {"status": "ok"}
 
+# HR - Attendance
+@app.get("/api/hr/attendance")
+def get_attendance(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    res = db.query(Attendance, Employee.name).join(Employee, Attendance.employee_id == Employee.id).filter(Attendance.tenant_id == user.tenant_id).order_by(Attendance.date.desc()).all()
+    return [{**a[0].__dict__, "employee_name": a[1]} for a in res]
+
+@app.post("/api/hr/attendance")
+def mark_attendance(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    att = db.query(Attendance).filter_by(employee_id=data["employee_id"], date=data["date"], tenant_id=user.tenant_id).first()
+    if att:
+        att.status = data["status"]
+    else:
+        att = Attendance(**data, tenant_id=user.tenant_id)
+        db.add(att)
+    db.commit(); db.refresh(att)
+    return att
+
+# HR - Payroll
+@app.get("/api/hr/salary_slips")
+def get_salary_slips(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    res = db.query(SalarySlip, Employee.name).join(Employee, SalarySlip.employee_id == Employee.id).filter(SalarySlip.tenant_id == user.tenant_id).all()
+    return [{**s[0].__dict__, "employee_name": s[1]} for s in res]
+
+@app.post("/api/hr/salary_slips")
+def create_salary_slip(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    slip_id = f"PAY-{uuid.uuid4().hex[:6].upper()}"
+    slip = SalarySlip(**data, id=slip_id, tenant_id=user.tenant_id)
+    
+    if slip.status == "Paid":
+        # Accounting Entry: Debit EXPENSE (5200), Credit BANK (1100)
+        db.add(LedgerEntry(date=datetime.now().strftime("%Y-%m-%d"), account="5200", debit=slip.net_pay, credit=0.0, description=f"Payroll Expense for {slip.employee_id} ({slip.id})", tenant_id=user.tenant_id))
+        db.add(LedgerEntry(date=datetime.now().strftime("%Y-%m-%d"), account="1100", debit=0.0, credit=slip.net_pay, description=f"Salary Payment to {slip.employee_id} ({slip.id})", tenant_id=user.tenant_id))
+
+    db.add(slip); db.commit(); db.refresh(slip)
+    return slip
+
+@app.put("/api/hr/salary_slips/{id}")
+def update_salary_slip(id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    slip = db.query(SalarySlip).filter_by(id=id, tenant_id=user.tenant_id).first()
+    if not slip: raise HTTPException(404)
+    old_status = slip.status
+    for k,v in data.items(): setattr(slip, k, v)
+    
+    if old_status != "Paid" and slip.status == "Paid":
+        db.add(LedgerEntry(date=datetime.now().strftime("%Y-%m-%d"), account="5200", debit=slip.net_pay, credit=0.0, description=f"Payroll Expense for {slip.employee_id} ({slip.id})", tenant_id=user.tenant_id))
+        db.add(LedgerEntry(date=datetime.now().strftime("%Y-%m-%d"), account="1100", debit=0.0, credit=slip.net_pay, description=f"Salary Payment to {slip.employee_id} ({slip.id})", tenant_id=user.tenant_id))
+
+    db.commit(); return slip
+
 # Stock Entries
 @app.get("/api/stock/entries")
 def get_stock_entries(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
@@ -920,12 +970,23 @@ def create_purchase_receipt(data: dict, db: Session = Depends(get_db), user: Use
     items = data.pop("items", [])
     pr = PurchaseReceipt(**data, id=f"PR-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}", tenant_id=user.tenant_id)
     db.add(pr)
+    
+    total_asset_value = 0.0
+    
     for i in items:
         db.add(PurchaseReceiptItem(**i, parent_id=pr.id))
         p = db.query(Product).filter_by(sku=i["item_code"], tenant_id=user.tenant_id).first()
         if p:
-            p.stock += float(i["qty"])
-            db.add(StockLedger(item_code=i["item_code"], warehouse=i.get("warehouse", "Main"), qty=float(i["qty"]), voucher_type="Purchase Receipt", voucher_no=pr.id, tenant_id=user.tenant_id))
+            qty_received = float(i["qty"])
+            p.stock += qty_received
+            total_asset_value += (qty_received * p.cost)
+            db.add(StockLedger(item_code=i["item_code"], warehouse=i.get("warehouse", "Main"), qty=qty_received, voucher_type="Purchase Receipt", voucher_no=pr.id, tenant_id=user.tenant_id))
+            
+    # Advanced Double-Entry Accounting sync
+    if total_asset_value > 0:
+        db.add(LedgerEntry(date=pr.date, account="1300", debit=total_asset_value, credit=0.0, description=f"Goods received from {pr.supplier} via {pr.id}", tenant_id=user.tenant_id))
+        db.add(LedgerEntry(date=pr.date, account="2100", debit=0.0, credit=total_asset_value, description=f"Stock received but not billed ({pr.id})", tenant_id=user.tenant_id))
+
     db.commit(); db.refresh(pr); return pr
 
 # BOM (Manufacturing)
@@ -965,21 +1026,29 @@ def produce_from_bom(data: dict, db: Session = Depends(get_db), user: User = Dep
     bom = db.query(BOM).filter_by(id=bom_id, tenant_id=user.tenant_id).first()
     if not bom: raise HTTPException(404, "BOM not found")
     
+    total_raw_cost = 0.0
+    
     # Check and Deduct Raw Materials
     raw_items = db.query(BOMItem).filter_by(parent_id=bom.id).all()
     for item in raw_items:
         prod = db.query(Product).filter_by(sku=item.item_code, tenant_id=user.tenant_id).first()
         if prod:
-            used_qty = item.qty * qty
-            prod.stock -= used_qty
+            used_qty = float(item.qty) * float(qty)
+            prod.stock = float(prod.stock) - used_qty
+            total_raw_cost += (used_qty * float(prod.cost))
             db.add(StockLedger(item_code=item.item_code, qty=-used_qty, warehouse="Production", voucher_type="Work Order", voucher_no=bom.id, tenant_id=user.tenant_id))
     
     # Add Finished Good
     fg = db.query(Product).filter_by(sku=bom.item_code, tenant_id=user.tenant_id).first()
     if fg:
-        fg.stock += qty
+        fg.stock = float(fg.stock) + float(qty)
         db.add(StockLedger(item_code=bom.item_code, qty=qty, warehouse="Main", voucher_type="Work Order", voucher_no=bom.id, tenant_id=user.tenant_id))
-    
+        
+    date_now = datetime.now().strftime("%Y-%m-%d")
+    if total_raw_cost > 0:
+        db.add(LedgerEntry(date=date_now, account="1300", debit=0.0, credit=total_raw_cost, description=f"RM Consumption for Work Order ({bom.id})", tenant_id=user.tenant_id))
+        db.add(LedgerEntry(date=date_now, account="1300", debit=total_raw_cost, credit=0.0, description=f"FG Received from Work Order ({bom.id})", tenant_id=user.tenant_id))
+        
     db.commit()
     return {"status": "success", "produced": qty, "item": bom.item_code}
 
@@ -1072,8 +1141,26 @@ def create_invoice(data: dict, db: Session = Depends(get_db), user: User = Depen
     items = data.pop("items", [])
     inv_id = f"INV-{datetime.now().year}-{str(uuid.uuid4())[:4].upper()}"
     total = sum([fill_zero(i.get("qty",0)) * fill_zero(i.get("rate",0)) for i in items])
-    inv = Invoice(id=inv_id, customer=data.get("customer"), date=data.get("date", datetime.now().strftime("%Y-%m-%d")), amount=total, grand_total=total, status="Draft", tenant_id=user.tenant_id)
+    
+    # Tax Calculation
+    tax_rate = fill_zero(data.get("tax_rate", 0))
+    tax_calc = float(f"{(total * (tax_rate / 100)):.2f}")
+    tax_amount = fill_zero(data.get("tax", tax_calc))
+    grand_total = total + tax_amount
+    
+    inv = Invoice(
+        id=inv_id,
+        customer=data.get("customer"),
+        date=data.get("date", datetime.now().strftime("%Y-%m-%d")),
+        amount=total,
+        tax=tax_amount,
+        grand_total=grand_total,
+        status="Draft",
+        tenant_id=user.tenant_id,
+        custom_data={"tax_rate": tax_rate, **data.get("custom_data", {})}
+    )
     db.add(inv)
+    
     for i in items:
         qty = fill_zero(i.get("qty",1))
         rate = fill_zero(i.get("rate",0))
@@ -1085,10 +1172,15 @@ def create_invoice(data: dict, db: Session = Depends(get_db), user: User = Depen
             prod.stock -= int(qty)
             db.add(StockLedger(item_code=item_code, warehouse=prod.warehouse, qty=-float(qty), voucher_type="Invoice", voucher_no=inv_id, tenant_id=user.tenant_id))
     
+    # Ensure 2300 account exists
+    if tax_amount > 0 and not db.query(Account).filter_by(code="2300", tenant_id=user.tenant_id).first():
+        db.add(Account(code="2300", name="Taxes & Duties Payable", type="Liability", tenant_id=user.tenant_id))
+
     # Advanced Double-Entry Accounting: Post to Ledger
-    # Debit: Accounts Receivable (1200) | Credit: Sales Revenue (4100)
-    db.add(LedgerEntry(date=inv.date, account="1200", debit=total, credit=0.0, description=f"Invoice {inv_id} generated for {inv.customer}", tenant_id=user.tenant_id))
-    db.add(LedgerEntry(date=inv.date, account="4100", debit=0.0, credit=total, description=f"Revenue from Invoice {inv_id}", tenant_id=user.tenant_id))
+    db.add(LedgerEntry(date=inv.date, account="1200", debit=grand_total, credit=0.0, description=f"Invoice {inv_id} to {inv.customer}", tenant_id=user.tenant_id))
+    db.add(LedgerEntry(date=inv.date, account="4100", debit=0.0, credit=total, description=f"Sales Rev: {inv_id}", tenant_id=user.tenant_id))
+    if tax_amount > 0:
+        db.add(LedgerEntry(date=inv.date, account="2300", debit=0.0, credit=tax_amount, description=f"Taxes out on {inv_id}", tenant_id=user.tenant_id))
     
     db.commit(); db.refresh(inv); return inv
 
@@ -1222,12 +1314,74 @@ def create_journal_entry(data: dict, db: Session = Depends(get_db), user: User =
 def get_accounting_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     sales = db.query(func.sum(LedgerEntry.credit)).filter(LedgerEntry.account == "4100", LedgerEntry.tenant_id == user.tenant_id).scalar() or 0
     expenses = db.query(func.sum(LedgerEntry.debit)).filter(LedgerEntry.account.in_(["5100", "5200"]), LedgerEntry.tenant_id == user.tenant_id).scalar() or 0
-    bank = db.query(func.sum(LedgerEntry.debit - LedgerEntry.credit)).filter(LedgerEntry.account == "1100", LedgerEntry.tenant_id == user.tenant_id).scalar() or 0
-    ar = db.query(func.sum(LedgerEntry.debit - LedgerEntry.credit)).filter(LedgerEntry.account == "1200", LedgerEntry.tenant_id == user.tenant_id).scalar() or 0
+    gst = db.query(func.sum(LedgerEntry.credit)).filter(LedgerEntry.account == "2300", LedgerEntry.tenant_id == user.tenant_id).scalar() or 0
     
     return {
         "total_revenue": f"₹{sales:,.2f}",
         "total_expenses": f"₹{expenses:,.2f}",
         "net_profit": f"₹{(sales - expenses):,.2f}",
-        "gst_payable": f"₹0.00"
+        "gst_payable": f"₹{gst:,.2f}"
+    }
+
+# ─── ENGINE ENDPOINTS (ERPNext Logic Ported) ──────────────────────────────────
+
+@app.post("/api/engine/calculate_taxes")
+def engine_calculate_taxes(data: dict, user: User = Depends(get_current_user_token)):
+    """
+    Ported from ERPNext: taxes_and_totals.py (calculate_taxes_and_totals)
+    
+    Accepts items + tax structure and returns item-wise breakdown,
+    total tax amounts, and grand total — identical to ERPNext's tax engine.
+    
+    POST body:
+    {
+      "items": [{"item_code": "X", "qty": 2, "rate": 500.0, "disc_pct": 5}],
+      "taxes": [
+        {"name": "CGST 9%", "charge_type": "On Net Total", "rate": 9},
+        {"name": "SGST 9%", "charge_type": "On Net Total", "rate": 9}
+      ]
+    }
+    """
+    items = data.get("items", [])
+    taxes = data.get("taxes", [])
+    if not items:
+        raise HTTPException(400, "items are required")
+    calc = TaxesAndTotals(items, taxes)
+    return calc.to_dict()
+
+
+@app.get("/api/engine/stock_balance/{item_code}")
+def engine_stock_balance(item_code: str, warehouse: str = None, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    """
+    Ported from ERPNext: stock/utils.py → get_stock_balance()
+    Returns the live running qty (from StockLedger) for the given item.
+    """
+    se = StockEngine(db, user.tenant_id)
+    balance = se.get_stock_balance(item_code, warehouse)
+    needs_reorder = se.reorder_check(item_code)
+    return {"item_code": item_code, "warehouse": warehouse, "balance": balance, "needs_reorder": needs_reorder}
+
+
+@app.post("/api/engine/validate_ledger")
+def engine_validate_ledger(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    """
+    Ported from ERPNext: general_ledger.py → process_debit_credit_difference()
+    
+    Dry-run validation: verifies a GL map is balanced WITHOUT saving.
+    POST body: {"gl_map": [{"account": "1200", "debit": 1000, "credit": 0}, ...]}
+    """
+    gl_map = data.get("gl_map", [])
+    if not gl_map:
+        raise HTTPException(400, "gl_map is required")
+    total_debit  = sum(float(e.get("debit", 0))  for e in gl_map)
+    total_credit = sum(float(e.get("credit", 0)) for e in gl_map)
+    diff = round(abs(total_debit - total_credit), 4)
+    is_balanced = diff <= 0.5
+    return {
+        "is_balanced": is_balanced,
+        "total_debit": round(total_debit, 2),
+        "total_credit": round(total_credit, 2),
+        "difference": diff,
+        "allowance": 0.5,
+        "message": "✅ GL entries are balanced." if is_balanced else f"❌ Imbalance of ₹{diff:.4f} detected."
     }

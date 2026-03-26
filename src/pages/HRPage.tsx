@@ -11,21 +11,32 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function HRPage() {
   const [modalOpen, setModalOpen] = useState(false);
+  const [attModalOpen, setAttModalOpen] = useState(false);
+  const [payModalOpen, setPayModalOpen] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<any>(null);
-  const { data: employees, isLoading, error, refetch } = useApiQuery(["hr", "employees"], hrApi.getEmployees);
+  
+  const { data: employees, isLoading, error, refetch: refetchEmp } = useApiQuery(["hr", "employees"], hrApi.getEmployees);
+  const { data: attendance, refetch: refetchAtt } = useApiQuery(["hr", "attendance"], hrApi.getAttendance);
+  const { data: slips, refetch: refetchPay } = useApiQuery(["hr", "salary_slips"], hrApi.getSalarySlips);
   const { data: summary } = useApiQuery(["hr", "summary"], hrApi.getSummary);
 
-  if (isLoading) return <div className="module-page"><LoadingState message="Loading employees..." /></div>;
-  if (error) return <div className="module-page"><ErrorState message="Failed to load HR data" onRetry={refetch} /></div>;
+  if (isLoading) return <div className="module-page"><LoadingState message="Loading HR module..." /></div>;
+  if (error) return <div className="module-page"><ErrorState message="Failed to load HR data" onRetry={refetchEmp} /></div>;
+
+  const empOptions = employees?.map((e: any) => ({ label: e.name, value: e.id })) || [];
 
   return (
     <div className="module-page">
       <div className="page-header">
         <div>
           <h1 className="page-title">HR & Payroll</h1>
-          <p className="text-sm text-muted-foreground">Employee lifecycle, tracking and disbursements</p>
+          <p className="text-sm text-muted-foreground">Employee lifecycle, tracking and automated disbursements</p>
         </div>
-        <Button onClick={() => { setEditingEmployee(null); setModalOpen(true); }} className="gap-2 bg-gradient-to-r from-accent to-accent/80 shadow-lg shadow-accent/20"><Plus className="h-4 w-4" />Add Employee</Button>
+        <div className="flex gap-2">
+          <Button onClick={() => setAttModalOpen(true)} variant="outline" className="gap-2"><Clock className="h-4 w-4" />Mark Attendance</Button>
+          <Button onClick={() => setPayModalOpen(true)} variant="secondary" className="gap-2"><CreditCard className="h-4 w-4" />Process Payroll</Button>
+          <Button onClick={() => { setEditingEmployee(null); setModalOpen(true); }} className="gap-2 bg-gradient-to-r from-accent to-accent/80 shadow-lg shadow-accent/20"><Plus className="h-4 w-4" />Add Employee</Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
@@ -55,13 +66,13 @@ export default function HRPage() {
                       <td className="font-medium">{e.name}</td>
                       <td>{e.role}</td>
                       <td><Badge variant="secondary">{e.dept}</Badge></td>
-                      <td className="font-semibold">{e.salary}</td>
+                      <td className="font-semibold">₹{e.salary?.toLocaleString()}</td>
                       <td className="text-muted-foreground">{e.joining}</td>
                       <td><span className={e.status === "Active" ? "status-badge status-active" : "status-badge status-warning"}>{e.status}</span></td>
                       <td className="text-right flex justify-end gap-1">
                         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setEditingEmployee(e); setModalOpen(true); }}><Edit className="h-3.5 w-3.5" /></Button>
                         <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={async () => {
-                          if (confirm(`Delete ${e.name}?`)) { await hrApi.deleteEmployee(e.id); refetch(); }
+                          if (confirm(`Delete ${e.name}?`)) { await hrApi.deleteEmployee(e.id); refetchEmp(); }
                         }}><Trash2 className="h-3.5 w-3.5" /></Button>
                       </td>
                     </tr>
@@ -74,14 +85,62 @@ export default function HRPage() {
         </TabsContent>
 
         <TabsContent value="attendance">
-          <EmptyState title="Attendance Tracking" description="Daily logs and shift schedules will appear here." />
+          {!attendance || attendance.length === 0 ? <EmptyState title="No Attendance Logs" /> : (
+            <Card className="border-none shadow-md overflow-hidden">
+              <CardContent className="p-0">
+                <table className="data-table">
+                  <thead className="bg-muted/50"><tr><th>Date</th><th>Employee</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {attendance.map((a: any) => (
+                      <tr key={a.id}>
+                        <td>{a.date}</td>
+                        <td className="font-medium">{a.employee_name}</td>
+                        <td><Badge variant={a.status === "Absent" ? "destructive" : "outline"} className={a.status === "Present" ? "bg-success/10 text-success border-success/20" : ""}>{a.status}</Badge></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="payroll">
-          <EmptyState title="Disbursements" description="Manage monthly salary computations and bonus payments." />
+          {!slips || slips.length === 0 ? <EmptyState title="No Salary Slips" description="Manage monthly salary computations and automatic general ledger postings." /> : (
+            <Card className="border-none shadow-md overflow-hidden">
+              <CardContent className="p-0">
+                <table className="data-table">
+                  <thead className="bg-muted/50"><tr><th>Slip ID</th><th>Employee</th><th>Period</th><th>Gross</th><th>Deductions</th><th>Net Pay</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {slips.map((s: any) => (
+                      <tr key={s.id}>
+                        <td className="font-mono text-xs text-muted-foreground">{s.id}</td>
+                        <td className="font-medium">{s.employee_name}</td>
+                        <td>{s.start_date} to {s.end_date}</td>
+                        <td>₹{s.gross_pay?.toLocaleString()}</td>
+                        <td className="text-destructive">₹{s.deductions?.toLocaleString()}</td>
+                        <td className="font-bold text-success">₹{s.net_pay?.toLocaleString()}</td>
+                        <td>
+                          {s.status === 'Paid' ? (
+                            <Badge variant="outline" className="bg-success/10 text-success border-success/20 shadow-sm shadow-success/20">Paid</Badge>
+                          ) : (
+                            <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={async () => {
+                              await hrApi.updateSalarySlip(s.id, { status: "Paid" });
+                              refetchPay();
+                            }}>Mark Paid</Button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
 
+      {/* Employee Modal */}
       <RecordModal
         open={modalOpen}
         onOpenChange={(v) => { setModalOpen(v); if (!v) setEditingEmployee(null); }}
@@ -97,8 +156,44 @@ export default function HRPage() {
         onSubmit={async (data) => {
           if (editingEmployee) await hrApi.updateEmployee(editingEmployee.id, data);
           else await hrApi.createEmployee(data);
-          refetch();
+          refetchEmp();
           setModalOpen(false);
+        }}
+      />
+
+      {/* Attendance Modal */}
+      <RecordModal
+        open={attModalOpen}
+        onOpenChange={setAttModalOpen}
+        title="Mark Attendance"
+        fields={[
+          { name: "employee_id", label: "Employee", type: "select", options: empOptions, required: true },
+          { name: "date", label: "Date", type: "date", required: true },
+          { name: "status", label: "Status", type: "select", options: ["Present", "Absent", "Half Day"], required: true }
+        ]}
+        onSubmit={async (data) => {
+          await hrApi.markAttendance(data);
+          refetchAtt();
+        }}
+      />
+
+      {/* Payroll Modal */}
+      <RecordModal
+        open={payModalOpen}
+        onOpenChange={setPayModalOpen}
+        title="Generate Salary Slip"
+        fields={[
+          { name: "employee_id", label: "Employee", type: "select", options: empOptions, required: true },
+          { name: "start_date", label: "Start Date", type: "date", required: true },
+          { name: "end_date", label: "End Date", type: "date", required: true },
+          { name: "gross_pay", label: "Gross Salary (₹)", type: "number", required: true },
+          { name: "deductions", label: "Deductions/Taxes (₹)", type: "number", required: true },
+          { name: "net_pay", label: "Net Payable (₹)", type: "number", required: true },
+          { name: "status", label: "Status", type: "select", options: ["Draft", "Paid"], required: true }
+        ]}
+        onSubmit={async (data) => {
+          await hrApi.createSalarySlip(data);
+          refetchPay();
         }}
       />
     </div>

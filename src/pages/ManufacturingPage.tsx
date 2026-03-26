@@ -3,20 +3,37 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Plus, Search, Hammer, Settings, ClipboardList } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, inventoryApi } from "@/lib/api";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { LoadingState, ErrorState, EmptyState } from "@/components/LoadingState";
 import { RecordModal, RecordField } from "@/components/RecordModal";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 
 export default function ManufacturingPage() {
   const [modalOpen, setModalOpen] = useState(false);
+  const [produceModalOpen, setProduceModalOpen] = useState(false);
+  const [selectedBom, setSelectedBom] = useState<string | null>(null);
+  
   const { data: boms, isLoading, error, refetch } = useApiQuery(["manufacturing", "bom"], () => api.get<any[]>("/api/manufacturing/bom"));
+  const { data: products } = useApiQuery(["inventory", "products"], inventoryApi.getProducts);
 
-  const fields: RecordField[] = [
-    { name: "item_code", label: "Finished Good Item", type: "text", required: true },
-    { name: "qty", label: "Quantity", type: "number", required: true },
-    { name: "total_cost", label: "Total Cost (₹)", type: "number" }
+  const productOptions = products?.map((p: any) => ({ label: `${p.name} (₹${p.cost})`, value: p.sku })) || [];
+
+  const bomFields: RecordField[] = [
+    { name: "item_code", label: "Finished Good Items (To Produce)", type: "select", options: productOptions, required: true },
+    { name: "qty", label: "Base Quantity", type: "number", required: true },
+    { 
+      name: "items", label: "Raw Materials Consumed", type: "table", required: true, 
+      columns: [
+        { name: "item_code", label: "Raw Material", type: "select", options: productOptions },
+        { name: "qty", label: "Qty per Base", type: "number" },
+      ]
+    }
+  ];
+
+  const produceFields: RecordField[] = [
+    { name: "qty", label: "Quantity to Produce", type: "number", required: true }
   ];
 
   if (isLoading) return <div className="module-page"><LoadingState /></div>;
@@ -51,20 +68,26 @@ export default function ManufacturingPage() {
           {!boms || boms.length === 0 ? <EmptyState title="No BOMs found" description="Create a Bill of Materials to start production planning." /> : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {boms.map((b) => (
-                <Card key={b.id} className="border-none shadow-sm hover:shadow-md transition-shadow">
+                <Card key={b.id} className="border-none shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group">
+                  <div className="absolute top-0 left-0 w-1 h-full bg-accent"></div>
                   <CardContent className="p-5">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-accent/10">
-                        <ClipboardList className="h-5 w-5 text-accent" />
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-accent/10">
+                          <ClipboardList className="h-5 w-5 text-accent" />
+                        </div>
+                        <div>
+                          <h3 className="font-semibold">{b.item_code}</h3>
+                          <p className="text-xs text-muted-foreground">{b.id}</p>
+                        </div>
                       </div>
-                      <div>
-                        <h3 className="font-semibold">{b.item_code}</h3>
-                        <p className="text-xs text-muted-foreground">Standard BOM</p>
-                      </div>
+                      <Badge variant="outline" className="bg-accent/5">Base Qty: {b.qty}</Badge>
                     </div>
-                    <div className="mt-4 flex justify-between text-sm">
-                      <span className="text-muted-foreground">Qty: {b.qty}</span>
-                      <span className="font-bold">₹{b.total_cost?.toLocaleString()}</span>
+                    <div className="mt-5 flex justify-between items-center text-sm">
+                      <span className="font-bold text-lg">₹{b.total_cost?.toLocaleString() || "0.00"}</span>
+                      <Button variant="secondary" size="sm" onClick={() => { setSelectedBom(b.id); setProduceModalOpen(true); }} className="gap-1.5 h-8">
+                        <Hammer className="h-3.5 w-3.5" /> Produce
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
@@ -74,17 +97,28 @@ export default function ManufacturingPage() {
         </TabsContent>
 
         <TabsContent value="workorders">
-           <EmptyState title="No active work orders" description="Production orders will appear here once initiated." />
+           <EmptyState title="No active work orders" description="Production orders trace their history back to BOMs." />
         </TabsContent>
       </Tabs>
 
       <RecordModal
         open={modalOpen}
         onOpenChange={setModalOpen}
-        title="Create New BOM"
-        fields={fields}
+        title="Create New Bill of Materials"
+        fields={bomFields}
         onSubmit={async (data) => {
           await api.post("/api/manufacturing/bom", data);
+          refetch();
+        }}
+      />
+
+      <RecordModal
+        open={produceModalOpen}
+        onOpenChange={setProduceModalOpen}
+        title="Execute Work Order"
+        fields={produceFields}
+        onSubmit={async (data) => {
+          await api.post("/api/manufacturing/produce", { bom_id: selectedBom, qty: data.qty });
           refetch();
         }}
       />

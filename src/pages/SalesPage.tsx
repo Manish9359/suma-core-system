@@ -72,12 +72,24 @@ export default function SalesPage() {
   };
 
   const buildPayload = (data: any) => {
-    const { _amount, _discount, _cgst, _sgst, _grand_total, custom_data: _cd, cgst, sgst, taxable, ...rest } = data;
+    const { _amount, _discount, _cgst, _sgst, _grand_total, custom_data: _cd, cgst, sgst, taxable, gst_rate, ...rest } = data;
     const discFromItems = (data.items || []).reduce((acc: number, item: any) => {
       const lineAmt = Number(item.qty || 0) * Number(item.rate || 0);
       return acc + lineAmt * (Number(item.disc_pct || 0) / 100);
     }, 0);
-    return { ...rest, discount: parseFloat(discFromItems.toFixed(2)), custom_data: { gst_rate: Number(data.gst_rate || 0), status: data.status || "Draft" } };
+    
+    const itemsTotal = (data.items || []).reduce((acc: number, item: any) => acc + (Number(item.qty || 0) * Number(item.rate || 0)), 0);
+    const subtotal = Math.max(itemsTotal - discFromItems, 0);
+    const r = Number(gst_rate || 0);
+    const taxAmt = subtotal * (r / 100);
+
+    return { 
+      ...rest, 
+      discount: parseFloat(discFromItems.toFixed(2)), 
+      tax_rate: r, 
+      tax: parseFloat(taxAmt.toFixed(2)),
+      custom_data: { gst_rate: r, status: data.status || "Draft" } 
+    };
   };
 
   const qtnFields = [
