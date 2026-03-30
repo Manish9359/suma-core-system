@@ -1,0 +1,70 @@
+{
+  "name": "Sales Invoice",
+  "module": "Sales",
+  "naming_rule": "Prefix",
+  "naming_prefix": "INV-",
+  "workflow_state_field": "workflow_state",
+  "states": ["Draft", "Submitted", "Cancelled"],
+  "track_changes": true,
+  "fields": [
+    {
+      "name": "id",
+      "label": "Invoice ID",
+      "fieldtype": "text",
+      "readonly": true,
+      "hidden": true
+    },
+    {
+      "name": "customer",
+      "label": "Customer",
+      "fieldtype": "link",
+      "options": "Customer",
+      "required": true
+    },
+    {
+      "name": "date",
+      "label": "Invoice Date",
+      "fieldtype": "date",
+      "required": true
+    },
+    {
+      "name": "items",
+      "label": "Invoice Items",
+      "fieldtype": "table",
+      "options": "Sales Invoice Item",
+      "required": true
+    },
+    {
+      "name": "gst_rate",
+      "label": "GST Rate (%)",
+      "fieldtype": "float",
+      "default": 18.0
+    },
+    {
+      "name": "amount",
+      "label": "Subtotal (₹)",
+      "fieldtype": "float",
+      "readonly": true
+    },
+    {
+      "name": "tax",
+      "label": "GST Amount (₹)",
+      "fieldtype": "float",
+      "readonly": true
+    },
+    {
+      "name": "grand_total",
+      "label": "Grand Total (₹)",
+      "fieldtype": "float",
+      "readonly": true
+    },
+    {
+      "name": "workflow_state",
+      "label": "Doc Status",
+      "fieldtype": "select",
+      "options": "Draft,Submitted,Cancelled",
+      "default": "Draft",
+      "readonly": true
+    }
+  ]
+}

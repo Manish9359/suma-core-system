@@ -1,0 +1,58 @@
+{
+  "name": "Employee",
+  "module": "HR",
+  "naming_rule": "Prefix",
+  "naming_prefix": "EMP-",
+  "fields": [
+    {
+      "name": "id",
+      "label": "Employee ID",
+      "fieldtype": "text",
+      "readonly": true,
+      "hidden": true
+    },
+    {
+      "name": "first_name",
+      "label": "First Name",
+      "fieldtype": "text",
+      "required": true
+    },
+    {
+      "name": "last_name",
+      "label": "Last Name",
+      "fieldtype": "text",
+      "required": true
+    },
+    {
+      "name": "department",
+      "label": "Department",
+      "fieldtype": "select",
+      "options": "Management,Sales,Engineering,HR,Finance,Operations",
+      "required": true
+    },
+    {
+      "name": "designation",
+      "label": "Designation",
+      "fieldtype": "text",
+      "required": true
+    },
+    {
+      "name": "email",
+      "label": "Company Email",
+      "fieldtype": "text",
+      "required": true
+    },
+    {
+      "name": "date_of_joining",
+      "label": "Date of Joining",
+      "fieldtype": "date"
+    },
+    {
+      "name": "status",
+      "label": "Status",
+      "fieldtype": "select",
+      "options": "Active,Inactive,Suspended,Left",
+      "default": "Active"
+    }
+  ]
+}

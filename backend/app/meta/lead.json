@@ -1,0 +1,56 @@
+{
+  "name": "Lead",
+  "module": "CRM",
+  "naming_rule": "Prefix",
+  "naming_prefix": "LEAD-",
+  "track_changes": true,
+  "workflow_state_field": "status",
+  "states": ["New", "Contacted", "Qualified", "Proposal", "Converted"],
+  "fields": [
+    {
+      "name": "id",
+      "label": "Lead ID",
+      "fieldtype": "text",
+      "readonly": true,
+      "hidden": true
+    },
+    {
+      "name": "name",
+      "label": "Lead Name",
+      "fieldtype": "text",
+      "required": true
+    },
+    {
+      "name": "company",
+      "label": "Company",
+      "fieldtype": "text"
+    },
+    {
+      "name": "phone",
+      "label": "Phone Number",
+      "fieldtype": "text"
+    },
+    {
+      "name": "email",
+      "label": "Email Address",
+      "fieldtype": "text"
+    },
+    {
+      "name": "source",
+      "label": "Lead Source",
+      "fieldtype": "select",
+      "options": "Website,Referral,Cold Call,Event,LinkedIn"
+    },
+    {
+      "name": "status",
+      "label": "Status",
+      "fieldtype": "select",
+      "options": "New,Contacted,Qualified,Proposal,Converted",
+      "default": "New",
+      "readonly": true
+    }
+  ],
+  "permissions": [
+    {"role": "Sales User", "read": true, "write": true, "submit": true}
+  ]
+}

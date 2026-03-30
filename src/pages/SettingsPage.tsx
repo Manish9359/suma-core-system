@@ -28,7 +28,7 @@ export default function SettingsPage() {
 
   const [form, setForm] = useState<any>({});
 
-  const merged = { ...company, ...form };
+  const merged = { ...(company || {}), ...form };
 
   const set = (k: string, v: string) => setForm((p: any) => ({ ...p, [k]: v }));
 

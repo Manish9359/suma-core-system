@@ -1,0 +1,33 @@
+{
+  "name": "Warehouse",
+  "module": "Inventory",
+  "naming_rule": "Prefix",
+  "naming_prefix": "WH-",
+  "fields": [
+    {
+      "name": "id",
+      "label": "Warehouse ID",
+      "fieldtype": "text",
+      "readonly": true,
+      "hidden": true
+    },
+    {
+      "name": "name",
+      "label": "Warehouse Name",
+      "fieldtype": "text",
+      "required": true
+    },
+    {
+      "name": "location",
+      "label": "City / Location",
+      "fieldtype": "text"
+    },
+    {
+      "name": "is_group",
+      "label": "Is Group?",
+      "fieldtype": "select",
+      "options": "true,false",
+      "default": "false"
+    }
+  ]
+}

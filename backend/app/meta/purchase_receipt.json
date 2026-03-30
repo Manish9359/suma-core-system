@@ -1,0 +1,42 @@
+{
+  "name": "Purchase Receipt",
+  "module": "Buying",
+  "naming_rule": "Prefix",
+  "naming_prefix": "GRN-",
+  "fields": [
+    {
+      "name": "id",
+      "label": "GRN ID",
+      "fieldtype": "text",
+      "readonly": true,
+      "hidden": true
+    },
+    {
+      "name": "supplier",
+      "label": "Supplier",
+      "fieldtype": "link",
+      "options": "Supplier",
+      "required": true
+    },
+    {
+      "name": "date",
+      "label": "Receipt Date",
+      "fieldtype": "date",
+      "required": true
+    },
+    {
+      "name": "items",
+      "label": "Received Items",
+      "fieldtype": "table",
+      "options": "Purchase Receipt Item",
+      "required": true
+    },
+    {
+      "name": "status",
+      "label": "Status",
+      "fieldtype": "select",
+      "options": "Draft,Completed",
+      "default": "Draft"
+    }
+  ]
+}

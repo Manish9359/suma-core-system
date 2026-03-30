@@ -1,0 +1,68 @@
+{
+  "name": "Product",
+  "module": "Inventory",
+  "naming_rule": "Prefix",
+  "naming_prefix": "ITEM-",
+  "track_changes": true,
+  "fields": [
+    {
+      "name": "id",
+      "label": "Item Code",
+      "fieldtype": "text",
+      "readonly": true,
+      "hidden": true
+    },
+    {
+      "name": "name",
+      "label": "Item Name",
+      "fieldtype": "text",
+      "required": true
+    },
+    {
+      "name": "item_group",
+      "label": "Item Group",
+      "fieldtype": "select",
+      "options": "Raw Material,Sub-Assembly,Finished Good,Service,Consumable",
+      "default": "Finished Good",
+      "required": true
+    },
+    {
+      "name": "description",
+      "label": "Description",
+      "fieldtype": "text"
+    },
+    {
+      "name": "uom",
+      "label": "Default Unit of Measure (UOM)",
+      "fieldtype": "select",
+      "options": "Nos,Kg,Litre,Meter,Box,Set,Hour",
+      "default": "Nos",
+      "required": true
+    },
+    {
+      "name": "standard_rate",
+      "label": "Standard Selling Rate",
+      "fieldtype": "float"
+    },
+    {
+      "name": "valuation_rate",
+      "label": "Current Valuation Rate",
+      "fieldtype": "float",
+      "readonly": true
+    },
+    {
+      "name": "has_variants",
+      "label": "Has Variants",
+      "fieldtype": "select",
+      "options": "true,false",
+      "default": "false"
+    },
+    {
+      "name": "is_stock_item",
+      "label": "Maintain Stock",
+      "fieldtype": "select",
+      "options": "true,false",
+      "default": "true"
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "name": "BOM Item",
+  "module": "Manufacturing",
+  "istable": true,
+  "fields": [
+    {
+      "name": "item_code",
+      "label": "Raw Material",
+      "fieldtype": "link",
+      "options": "Product",
+      "required": true
+    },
+    {
+      "name": "qty",
+      "label": "Quantity",
+      "fieldtype": "float",
+      "default": 1.0,
+      "required": true
+    },
+    {
+      "name": "rate",
+      "label": "Unit Cost (₹)",
+      "fieldtype": "float"
+    },
+    {
+      "name": "amount",
+      "label": "Line Total (₹)",
+      "fieldtype": "float",
+      "readonly": true
+    }
+  ]
+}

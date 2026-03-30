@@ -10,7 +10,17 @@ import { toast } from "sonner";
 import { LoadingState, ErrorState } from "@/components/LoadingState";
 import { Badge } from "@/components/ui/badge";
 
-export default function GenericModulePage({ doctype, title, description }: { doctype: string, title?: string, description?: string }) {
+export default function GenericModulePage({ 
+  doctype, 
+  title, 
+  description,
+  onRecordChange 
+}: { 
+  doctype: string, 
+  title?: string, 
+  description?: string,
+  onRecordChange?: (data: any) => any 
+}) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -30,7 +40,59 @@ export default function GenericModulePage({ doctype, title, description }: { doc
   if (metaLoading || recordsLoading) return <div className="module-page"><LoadingState message={`Loading ${title || doctype}...`} /></div>;
   if (metaError) return <div className="module-page"><ErrorState message={`Failed to load metadata for ${doctype}`} onRetry={refetchMeta} /></div>;
 
-  const fields: RecordField[] = meta?.fields || [];
+  const rawFields = meta?.fields || [];
+  const [fields, setFields] = useState<RecordField[]>([]);
+
+  // 3. Resolve Metadata (Links & Tables)
+  useEffect(() => {
+    async function resolveMetadata() {
+      const resolved: RecordField[] = await Promise.all(rawFields.map(async (f: any) => {
+        const type = f.fieldtype?.toLowerCase() || f.type?.toLowerCase() || "text";
+        
+        let options = typeof f.options === "string" ? f.options.split(",").map((o: string) => o.trim()) : f.options;
+
+        // Auto-fetch Link Options
+        if (type === "link" && f.options) {
+           try {
+             const resp = await api.get<any[]>(`/api/v1/doc/${f.options}`);
+             options = resp.map(r => ({ label: r.name || r.id, value: r.id }));
+           } catch {
+             options = [];
+           }
+        }
+
+        // Auto-fetch Table Columns
+        let columns: RecordField[] | undefined = undefined;
+        if (type === "table" && f.options) {
+          try {
+            const childMeta = await api.get<any>(`/api/v1/doc/meta/${f.options}`);
+            columns = childMeta.fields.map((cf: any) => ({
+              name: cf.name,
+              label: cf.label || cf.name,
+              type: cf.fieldtype?.toLowerCase() === "int" || cf.fieldtype?.toLowerCase() === "float" ? "number" : cf.fieldtype?.toLowerCase() || "text",
+              required: !!cf.required,
+              disabled: !!cf.readonly || !!cf.disabled,
+              options: typeof cf.options === "string" ? cf.options.split(",").map((o: string) => o.trim()) : cf.options
+            }));
+          } catch {
+            columns = [];
+          }
+        }
+
+        return {
+          name: f.name,
+          label: f.label || f.name,
+          type: type === "int" || type === "float" ? "number" : type,
+          required: !!f.required,
+          disabled: !!f.readonly || !!f.disabled,
+          options,
+          columns
+        };
+      }));
+      setFields(resolved);
+    }
+    if (meta) resolveMetadata();
+  }, [meta]);
   
   // Decide which columns to show in the list view (first 4 text/string/email fields)
   const listColumns = fields.filter(f => f.name !== "id" && f.name !== "tenant_id" && f.type !== "table").slice(0, 5);
@@ -38,6 +100,7 @@ export default function GenericModulePage({ doctype, title, description }: { doc
   const filteredRecords = (Array.isArray(records) ? records : []).filter(r => 
     Object.values(r).some(val => String(val).toLowerCase().includes(searchQuery.toLowerCase()))
   );
+
 
   const handleSave = async (data: any) => {
     try {
@@ -137,8 +200,10 @@ export default function GenericModulePage({ doctype, title, description }: { doc
         title={editingRecord?.id ? `Edit ${doctype} #${editingRecord.id}` : `New ${doctype}`}
         fields={fields}
         initialData={editingRecord}
+        onChangeData={onRecordChange}
         onSubmit={handleSave}
       />
+
     </div>
   );
 }

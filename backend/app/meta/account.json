@@ -1,0 +1,31 @@
+{
+  "name": "Account",
+  "module": "Accounting",
+  "fields": [
+    {
+      "name": "code",
+      "label": "Account Code",
+      "fieldtype": "text",
+      "required": true
+    },
+    {
+      "name": "name",
+      "label": "Account Name",
+      "fieldtype": "text",
+      "required": true
+    },
+    {
+      "name": "account_type",
+      "label": "Account Type",
+      "fieldtype": "select",
+      "options": "Asset,Liability,Income,Expense,Equity",
+      "required": true
+    },
+    {
+      "name": "balance",
+      "label": "Balance (₹)",
+      "fieldtype": "float",
+      "readonly": true
+    }
+  ]
+}

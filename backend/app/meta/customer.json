@@ -1,0 +1,61 @@
+{
+  "name": "Customer",
+  "module": "CRM",
+  "naming_rule": "Prefix",
+  "naming_prefix": "CUST-",
+  "track_changes": true,
+  "workflow_state_field": "workflow_state",
+  "states": ["Active", "Inactive"],
+  "fields": [
+    {
+      "name": "id",
+      "label": "Customer ID",
+      "fieldtype": "text",
+      "readonly": true,
+      "hidden": true
+    },
+    {
+      "name": "company",
+      "label": "Company Name",
+      "fieldtype": "text",
+      "required": true
+    },
+    {
+      "name": "contact",
+      "label": "Contact Person",
+      "fieldtype": "text",
+      "required": true
+    },
+    {
+      "name": "email",
+      "label": "Primary Email",
+      "fieldtype": "text"
+    },
+    {
+      "name": "phone",
+      "label": "Phone Number",
+      "fieldtype": "text"
+    },
+    {
+      "name": "address",
+      "label": "Billing Address",
+      "fieldtype": "text"
+    },
+    {
+      "name": "gst",
+      "label": "Tax/GST ID",
+      "fieldtype": "text"
+    },
+    {
+      "name": "customer_group",
+      "label": "Customer Group",
+      "fieldtype": "select",
+      "options": "Commercial,Retail,Government,Non-Profit",
+      "default": "Commercial"
+    }
+  ],
+  "permissions": [
+    {"role": "Sales User", "read": true, "write": true, "submit": false},
+    {"role": "Sales Manager", "read": true, "write": true, "submit": true}
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "name": "Work Order",
+  "module": "Manufacturing",
+  "naming_rule": "Prefix",
+  "naming_prefix": "WO-",
+  "fields": [
+    {
+      "name": "id",
+      "label": "WO ID",
+      "fieldtype": "text",
+      "readonly": true,
+      "hidden": true
+    },
+    {
+      "name": "bom_no",
+      "label": "BOM",
+      "fieldtype": "link",
+      "options": "BOM",
+      "required": true
+    },
+    {
+      "name": "qty",
+      "label": "Quantity to Produce",
+      "fieldtype": "float",
+      "required": true
+    },
+    {
+      "name": "status",
+      "label": "Status",
+      "fieldtype": "select",
+      "options": "Draft,In Progress,Completed,Stopped",
+      "default": "Draft"
+    },
+    {
+      "name": "planned_start_date",
+      "label": "Planned Start",
+      "fieldtype": "date"
+    }
+  ]
+}

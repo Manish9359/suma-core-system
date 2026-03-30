@@ -53,4 +53,10 @@ def initialize_registry():
     register_with_meta("BOM", BOM)
     register_with_meta("Work Order", WorkOrder)
     
+    # Accounting
+    from app.modules.accounting.models import Account, PaymentEntry
+    register_with_meta("Account", Account)
+    register_with_meta("Payment Entry", PaymentEntry)
+
+    
     print("DocRegistry fully initialized with formal JSON metadata where available.")

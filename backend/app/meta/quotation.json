@@ -1,0 +1,61 @@
+{
+  "name": "Quotation",
+  "module": "Sales",
+  "naming_rule": "Prefix",
+  "naming_prefix": "QTN-",
+  "workflow_state_field": "status",
+  "states": ["Draft", "Sent", "Approved", "Converted"],
+  "fields": [
+    {
+      "name": "id",
+      "label": "Quotation ID",
+      "fieldtype": "text",
+      "readonly": true,
+      "hidden": true
+    },
+    {
+      "name": "customer",
+      "label": "Customer",
+      "fieldtype": "link",
+      "options": "Customer",
+      "required": true
+    },
+    {
+      "name": "date",
+      "label": "Quotation Date",
+      "fieldtype": "date",
+      "required": true
+    },
+    {
+      "name": "valid_till",
+      "label": "Valid Till",
+      "fieldtype": "date"
+    },
+    {
+      "name": "items",
+      "label": "Quotation Items",
+      "fieldtype": "table",
+      "options": "Quotation Item",
+      "required": true
+    },
+    {
+      "name": "amount",
+      "label": "Subtotal (₹)",
+      "fieldtype": "float",
+      "readonly": true
+    },
+    {
+      "name": "grand_total",
+      "label": "Grand Total (₹)",
+      "fieldtype": "float",
+      "readonly": true
+    },
+    {
+      "name": "status",
+      "label": "Status",
+      "fieldtype": "select",
+      "options": "Draft,Sent,Approved,Converted",
+      "default": "Draft"
+    }
+  ]
+}

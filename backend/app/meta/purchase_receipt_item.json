@@ -1,0 +1,29 @@
+{
+  "name": "Purchase Receipt Item",
+  "module": "Buying",
+  "istable": true,
+  "fields": [
+    {
+      "name": "item_code",
+      "label": "Item",
+      "fieldtype": "link",
+      "options": "Product",
+      "required": true
+    },
+    {
+      "name": "qty",
+      "label": "Accepted Qty",
+      "fieldtype": "int",
+      "default": 1,
+      "required": true
+    },
+    {
+      "name": "warehouse",
+      "label": "Target Warehouse",
+      "fieldtype": "link",
+      "options": "Warehouse",
+      "default": "Main",
+      "required": true
+    }
+  ]
+}

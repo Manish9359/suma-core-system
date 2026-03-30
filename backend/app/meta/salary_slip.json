@@ -1,0 +1,70 @@
+{
+  "name": "Salary Slip",
+  "module": "HR",
+  "naming_rule": "Prefix",
+  "naming_prefix": "SAL-",
+  "workflow_state_field": "workflow_state",
+  "states": ["Draft", "Submitted", "Cancelled"],
+  "track_changes": true,
+  "fields": [
+    {
+      "name": "id",
+      "label": "Salary Slip ID",
+      "fieldtype": "text",
+      "readonly": true,
+      "hidden": true
+    },
+    {
+      "name": "employee_id",
+      "label": "Employee Link",
+      "fieldtype": "link",
+      "options": "Employee",
+      "required": true
+    },
+    {
+      "name": "start_date",
+      "label": "Start Date",
+      "fieldtype": "date",
+      "required": true
+    },
+    {
+      "name": "end_date",
+      "label": "End Date",
+      "fieldtype": "date",
+      "required": true
+    },
+    {
+      "name": "base_salary",
+      "label": "Basic Pay",
+      "fieldtype": "float",
+      "required": true
+    },
+    {
+      "name": "deductions",
+      "label": "Total Deductions",
+      "fieldtype": "float",
+      "default": 0.0
+    },
+    {
+      "name": "net_pay",
+      "label": "Net Payable",
+      "fieldtype": "float",
+      "readonly": true
+    },
+    {
+      "name": "payment_status",
+      "label": "Payment Status",
+      "fieldtype": "select",
+      "options": "Unpaid,Paid",
+      "default": "Unpaid"
+    },
+    {
+      "name": "workflow_state",
+      "label": "Doc Status",
+      "fieldtype": "select",
+      "options": "Draft,Submitted,Cancelled",
+      "default": "Draft",
+      "readonly": true
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "name": "Payment Entry",
+  "module": "Accounting",
+  "naming_rule": "Prefix",
+  "naming_prefix": "PAY-",
+  "fields": [
+    {
+      "name": "id",
+      "label": "Payment ID",
+      "fieldtype": "text",
+      "readonly": true,
+      "hidden": true
+    },
+    {
+      "name": "date",
+      "label": "Payment Date",
+      "fieldtype": "date",
+      "required": true
+    },
+    {
+      "name": "payment_type",
+      "label": "Type",
+      "fieldtype": "select",
+      "options": "Receive,Pay",
+      "required": true
+    },
+    {
+      "name": "party_type",
+      "label": "Party Type",
+      "fieldtype": "select",
+      "options": "Customer,Supplier,Employee,Other",
+      "required": true
+    },
+    {
+      "name": "party",
+      "label": "Party",
+      "fieldtype": "link",
+      "options": "Customer",
+      "required": true
+    },
+    {
+      "name": "amount",
+      "label": "Amount (₹)",
+      "fieldtype": "float",
+      "required": true
+    },
+    {
+      "name": "mode_of_payment",
+      "label": "Mode",
+      "fieldtype": "select",
+      "options": "Cash,Bank,UPI,Cheque,Wire Transfer"
+    },
+    {
+      "name": "reference_no",
+      "label": "Reference / Check #",
+      "fieldtype": "text"
+    }
+  ]
+}
