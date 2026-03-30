@@ -9,21 +9,24 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { useState } from "react";
 import { useApiQuery } from "@/hooks/useApiQuery";
-import { api, authApi } from "@/lib/api";
+import { api, authApi, systemApi } from "@/lib/api";
 import { RecordModal, RecordField } from "@/components/RecordModal";
 import { Badge } from "@/components/ui/badge";
 import { UserCog, Trash2, Edit, ShieldCheck, PlusCircle } from "lucide-react";
+import { LoadingState, ErrorState } from "@/components/LoadingState";
 
 export default function SettingsPage() {
   const { user } = useAuth();
-  const { data: company, refetch } = useApiQuery(["settings", "company"], () => api.get<any>("/api/settings/company"));
-  const { data: usersData, refetch: refetchUsers } = useApiQuery(["system", "users"], () => api.get<any[]>("/api/system/users"));
-  const { data: rolesData, refetch: refetchRoles } = useApiQuery(["system", "roles"], () => api.get<any[]>("/api/system/roles"));
-  const [form, setForm] = useState<any>({});
+  const [selectedRole, setSelectedRole] = useState<any>(null);
+  const [permModalOpen, setPermModalOpen] = useState(false);
   const [userModalOpen, setUserModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
-  const [permModalOpen, setPermModalOpen] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<any>(null);
+
+  const { data: company, isLoading: companyLoading, refetch: refetchCompany } = useApiQuery(["settings", "company"], () => api.get<any>("/api/v1/settings/company"));
+  const { data: usersData, isLoading: usersLoading, error: usersError, refetch: refetchUsers } = useApiQuery(["system", "users"], () => systemApi.getUsers());
+  const { data: rolesData, isLoading: rolesLoading, error: rolesError, refetch: refetchRoles } = useApiQuery(["system", "roles"], () => systemApi.getRoles());
+
+  const [form, setForm] = useState<any>({});
 
   const merged = { ...company, ...form };
 
@@ -32,14 +35,21 @@ export default function SettingsPage() {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await api.put("/api/settings/company", merged);
-      toast.success("Company settings saved successfully!");
-      refetch();
+      await api.post("/api/v1/settings/company", merged);
+      toast.success("Settings saved successfully");
+      refetchCompany();
       setForm({});
     } catch (err: any) {
       toast.error(err.message || "Failed to save settings");
     }
   };
+  if (companyLoading || usersLoading || rolesLoading) {
+    return <div className="module-page flex items-center justify-center h-[50vh]"><LoadingState message="Initializing settings..." /></div>;
+  }
+  
+  if (usersError || rolesError) {
+    return <div className="module-page"><ErrorState message="Critical Failure: Failed to load security profiles." onRetry={() => { refetchUsers(); refetchRoles(); }} /></div>;
+  }
 
   return (
     <div className="module-page max-w-4xl mx-auto">
@@ -51,12 +61,12 @@ export default function SettingsPage() {
       </div>
 
       <Tabs defaultValue="company" className="space-y-6">
-        <TabsList className="grid grid-cols-4 bg-muted/50 border shadow-sm">
+        <TabsList className={`grid ${user?.role === "Admin" ? 'grid-cols-5' : 'grid-cols-3'} bg-muted/50 border shadow-sm`}>
           <TabsTrigger value="company" className="gap-2"><Building2 className="h-4 w-4" /> Company</TabsTrigger>
-          <TabsTrigger value="users" className="gap-2"><UserCog className="h-4 w-4" /> Users</TabsTrigger>
+          {user?.role === "Admin" && <TabsTrigger value="users" className="gap-2"><UserCog className="h-4 w-4" /> Users</TabsTrigger>}
           <TabsTrigger value="notifications" className="gap-2"><Bell className="h-4 w-4" /> Alerts</TabsTrigger>
           <TabsTrigger value="bank" className="gap-2"><CreditCard className="h-4 w-4" /> Bank</TabsTrigger>
-          <TabsTrigger value="security" className="gap-2"><Shield className="h-4 w-4" /> Security</TabsTrigger>
+          {user?.role === "Admin" && <TabsTrigger value="security" className="gap-2"><Shield className="h-4 w-4" /> Security</TabsTrigger>}
         </TabsList>
 
         <form onSubmit={handleSave}>
@@ -131,134 +141,150 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
           </TabsContent>
-
-          <TabsContent value="users">
-            <Card className="border-none shadow-md">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle>User Management</CardTitle>
-                  <CardDescription>Manage system access and permissions (Admin Only)</CardDescription>
-                </div>
-                <Button 
-                  onClick={() => {
-                    setEditingUser({});
-                    setUserModalOpen(true);
-                  }}
-                  className="gap-2"
-                >
-                  <PlusCircle className="h-4 w-4" /> Add User
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <div className="border rounded-lg overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50 border-b text-[10px] font-semibold text-slate-500 uppercase">
-                      <tr>
-                        <th className="text-left px-4 py-3">Username</th>
-                        <th className="text-left px-4 py-3">Role</th>
-                        <th className="text-left px-4 py-3">Status</th>
-                        <th className="text-right px-4 py-3">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(usersData as any[])?.map((u: any) => (
-                        <tr key={u.id} className="border-b last:border-0 hover:bg-slate-50 transition-colors">
-                          <td className="px-4 py-3 font-medium">{u.username}</td>
-                          <td className="px-4 py-3"><Badge variant="outline">{u.role}</Badge></td>
-                          <td className="px-4 py-3">
-                            <span className={u.status === "Active" ? "status-badge status-active" : "status-badge status-closed"}>
-                              {u.status}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-right flex justify-end gap-2">
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-8 w-8 text-slate-500 hover:text-primary"
-                              onClick={() => {
-                                setEditingUser(u);
-                                setUserModalOpen(true);
-                              }}
-                            >
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="icon" 
-                              className="h-8 w-8 text-slate-500 hover:text-destructive"
-                              onClick={async () => {
-                                if (confirm(`Delete user ${u.username}?`)) {
-                                  try {
-                                    await api.delete(`/api/system/users/${u.id}`);
-                                    toast.success("User deleted");
-                                    refetchUsers();
-                                  } catch (e: any) { toast.error(e.message); }
-                                }
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="security">
-            <Card className="border-none shadow-md">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <div>
-                  <CardTitle>Role Management</CardTitle>
-                  <CardDescription>Configure Role-Based Access Control (RBAC)</CardDescription>
-                </div>
-                <Button 
-                  variant="outline"
-                  onClick={async () => {
-                    const name = prompt("Enter new Role name:");
-                    if (name) {
-                      try {
-                        await api.post(`/api/system/roles?name=${name}`);
-                        toast.success("Role created");
-                        refetchRoles();
-                      } catch (e: any) { toast.error(e.message); }
-                    }
-                  }}
-                  className="gap-2"
-                >
-                  <PlusCircle className="h-4 w-4" /> Add Role
-                </Button>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {(rolesData as any[])?.map((role: any) => (
-                    <div key={role.id} className="border rounded-md p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-bold text-lg">{role.name}</h3>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          className="text-primary gap-1.5"
-                          onClick={() => {
-                            setSelectedRole(role);
-                            setPermModalOpen(true);
-                          }}
-                        >
-                          <ShieldCheck className="h-4 w-4" /> Edit Permissions
-                        </Button>
-                      </div>
-                      <p className="text-xs text-muted-foreground">Custom Role ID: {role.id}</p>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
         </form>
+
+        <TabsContent value="notifications">
+          <Card className="border-none shadow-md">
+            <CardHeader>
+              <CardTitle>System Alerts & Notifications</CardTitle>
+              <CardDescription>View recent system-wide alerts and messages.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground italic">No new system alerts at this time.</p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="users">
+          <Card className="border-none shadow-md">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>User Management</CardTitle>
+                <CardDescription>Manage system access and permissions (Admin Only)</CardDescription>
+              </div>
+              <Button 
+                onClick={() => {
+                  setEditingUser({});
+                  setUserModalOpen(true);
+                }}
+                disabled={user?.role !== "Admin"}
+                className="gap-2"
+              >
+                <PlusCircle className="h-4 w-4" /> Add User
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 border-b text-[10px] font-semibold text-slate-500 uppercase">
+                    <tr>
+                      <th className="text-left px-4 py-3">Username</th>
+                      <th className="text-left px-4 py-3">Role</th>
+                      <th className="text-left px-4 py-3">Status</th>
+                      <th className="text-right px-4 py-3">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(Array.isArray(usersData) ? usersData : [])?.map((u: any) => (
+                      <tr key={u.id} className="border-b last:border-0 hover:bg-slate-50 transition-colors">
+                        <td className="px-4 py-3 font-medium">{u.username}</td>
+                        <td className="px-4 py-3"><Badge variant="outline">{u.role}</Badge></td>
+                        <td className="px-4 py-3">
+                          <span className={u.status === "Active" ? "status-badge status-active" : "status-badge status-closed"}>
+                            {u.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right flex justify-end gap-2">
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 text-slate-500 hover:text-primary"
+                            onClick={() => {
+                              setEditingUser(u);
+                              setUserModalOpen(true);
+                            }}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="h-8 w-8 text-slate-500 hover:text-destructive"
+                            onClick={async () => {
+                              if (confirm(`Delete user ${u.username}?`)) {
+                                try {
+                                  await systemApi.deleteUser(u.id);
+                                  toast.success("User deleted");
+                                  refetchUsers();
+                                } catch (e: any) { toast.error(e.message); }
+                              }
+                            }}
+                            disabled={user?.role !== "Admin"}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="security">
+          <Card className="border-none shadow-md">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Role Management</CardTitle>
+                <CardDescription>Configure Role-Based Access Control (RBAC)</CardDescription>
+              </div>
+              <Button 
+                variant="outline"
+                onClick={async () => {
+                  const name = prompt("Enter new Role name:");
+                  if (name) {
+                    try {
+                      await systemApi.createRole(name);
+                      toast.success("Role created");
+                      refetchRoles();
+                    } catch (e: any) { toast.error(e.message); }
+                  }
+                }}
+                disabled={user?.role !== "Admin"}
+                className="gap-2"
+              >
+                <PlusCircle className="h-4 w-4" /> Add Role
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {(Array.isArray(rolesData) ? rolesData : [])?.map((role: any) => (
+                  <div key={role.id} className="border rounded-md p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="font-bold text-lg">{role.name}</h3>
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="text-primary gap-1.5"
+                        onClick={() => {
+                          setSelectedRole(role);
+                          setPermModalOpen(true);
+                        }}
+                      >
+                        <ShieldCheck className="h-4 w-4" /> Edit Permissions
+                      </Button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Custom Role ID: {role.id}</p>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
       <RecordModal
         open={userModalOpen}
@@ -267,15 +293,15 @@ export default function SettingsPage() {
         fields={[
           { name: "username", label: "Email / Username", type: "text", required: true },
           { name: "password", label: "Password", type: "text", required: !editingUser?.id },
-          { name: "role", label: "Primary Role", type: "select", options: ["Admin", "Manager", "Employee", ...(rolesData as any[])?.map(r => r.name) || []] },
+          { name: "role", label: "Primary Role", type: "select", options: ["Admin", "Manager", "Employee", ...(Array.isArray(rolesData) ? rolesData : []).filter(r => r && r.name).map(r => r.name)] },
           { name: "status", label: "Account Status", type: "select", options: ["Active", "Disabled"] }
         ]}
         initialData={editingUser}
         onSubmit={async (data) => {
           if (editingUser?.id) {
-            await api.put(`/api/system/users/${editingUser.id}`, data);
+            await systemApi.updateUser(editingUser.id, data);
           } else {
-            await api.post("/api/system/users", data);
+            await systemApi.createUser(data);
           }
           refetchUsers();
         }}
@@ -307,7 +333,7 @@ export default function SettingsPage() {
             can_write: String(p.can_write) === "true",
             can_submit: String(p.can_submit) === "true"
           }));
-          await api.post(`/api/system/roles/${selectedRole.id}/permissions`, perms);
+          await systemApi.updateRolePermissions(selectedRole.id, perms);
           toast.success("Role permissions updated");
         }}
       />

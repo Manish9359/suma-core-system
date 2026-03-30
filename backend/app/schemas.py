@@ -2,7 +2,8 @@ from pydantic import BaseModel, EmailStr
 from typing import List, Optional, Any, Dict
 
 class LoginReq(BaseModel):
-    email: str
+    email: Optional[str] = None
+    username: Optional[str] = None
     password: str
 
 class TokenRes(BaseModel):

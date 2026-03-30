@@ -19,12 +19,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const token = localStorage.getItem("auth_token");
+    console.log("[AuthContext] Token on mount:", token ? "Exists" : "Missing");
     if (token) {
       authApi.me()
-        .then((u) => setUser(u))
-        .catch(() => {
+        .then((u) => {
+          console.log("[AuthContext] Me success:", u.name || u.email);
+          setUser(u);
+        })
+        .catch((err) => {
+          console.error("[AuthContext] Me failed, logging out:", err);
           localStorage.removeItem("auth_token");
           localStorage.removeItem("auth_user");
+          setUser(null);
         })
         .finally(() => setLoading(false));
     } else {
@@ -32,12 +38,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const login = async (email: string, password: string) => {
-    const result = await authApi.login(email, password);
+  const login = async (username: string, password: string) => {
+    const result = await authApi.login(username, password);
     localStorage.setItem("auth_token", result.access_token);
-    localStorage.setItem("auth_user", JSON.stringify(result.user));
-    setUser(result.user);
-    toast({ title: "Welcome back!", description: `Logged in as ${result.user.name}` });
+    
+    // Fetch profile
+    const profile = await authApi.me();
+    localStorage.setItem("auth_user", JSON.stringify(profile));
+    setUser(profile);
+    
+    toast({ title: "Welcome back!", description: `Logged in as ${profile.role}` });
   };
 
   const logout = async () => {

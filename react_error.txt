@@ -1,0 +1,66 @@
+Cannot read properties of null (reading 'username')
+TypeError: Cannot read properties of null (reading 'username')
+    at <anonymous> (http://localhost:8080/src/components/RecordModal.tsx?t=1774851279633:308:30)
+    at RecordModal (http://localhost:8080/src/components/RecordModal.tsx?t=1774851279633:249:61)
+    at renderWithHooks (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:11596:26)
+    at mountIndeterminateComponent (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:14974:21)
+    at beginWork (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:15962:22)
+    at callCallback2 (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:3680:22)
+    at invokeGuardedCallbackDev (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:3705:24)
+    at invokeGuardedCallback (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:3739:39)
+    at beginWork$1 (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:19818:15)
+    at performUnitOfWork (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:19251:20)
+
+Cannot read properties of null (reading 'username')
+TypeError: Cannot read properties of null (reading 'username')
+    at <anonymous> (http://localhost:8080/src/components/RecordModal.tsx?t=1774851279633:308:30)
+    at RecordModal (http://localhost:8080/src/components/RecordModal.tsx?t=1774851279633:249:61)
+    at renderWithHooks (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:11596:26)
+    at mountIndeterminateComponent (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:14974:21)
+    at beginWork (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:15962:22)
+    at callCallback2 (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:3680:22)
+    at invokeGuardedCallbackDev (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:3705:24)
+    at invokeGuardedCallback (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:3739:39)
+    at beginWork$1 (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:19818:15)
+    at performUnitOfWork (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:19251:20)
+
+The above error occurred in the <RecordModal> component:
+
+    at RecordModal (http://localhost:8080/src/components/RecordModal.tsx?t=1774851279633:202:31)
+    at div
+    at SettingsPage (http://localhost:8080/src/pages/SettingsPage.tsx?t=1774851279633:21:20)
+    at main
+    at div
+    at div
+    at div
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-HQKDAWYU.js?v=15d5439d:54:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=15d5439d:152:5)
+    at http://localhost:8080/src/components/ui/sidebar.tsx:32:6
+    at AppLayout (http://localhost:8080/src/components/AppLayout.tsx?t=1774848783004:12:29)
+    at ProtectedRoute (http://localhost:8080/src/App.tsx?t=1774851279633:32:27)
+    at RenderedRoute (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=15d5439d:4130:5)
+    at Routes (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=15d5439d:4600:5)
+    at AppRoutes (http://localhost:8080/src/App.tsx?t=1774851279633:65:40)
+    at AuthProvider (http://localhost:8080/src/contexts/AuthContext.tsx?t=1774848783004:7:32)
+    at Router (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=15d5439d:4543:15)
+    at BrowserRouter (http://localhost:8080/node_modules/.vite/deps/react-router-dom.js?v=15d5439d:5289:5)
+    at Provider (http://localhost:8080/node_modules/.vite/deps/chunk-HQKDAWYU.js?v=15d5439d:54:15)
+    at TooltipProvider (http://localhost:8080/node_modules/.vite/deps/@radix-ui_react-tooltip.js?v=15d5439d:152:5)
+    at QueryClientProvider (http://localhost:8080/node_modules/.vite/deps/@tanstack_react-query.js?v=15d5439d:3103:3)
+    at App
+
+Consider adding an error boundary to your tree to customize error handling behavior.
+Visit https://reactjs.org/link/error-boundaries to learn more about error boundaries. args: 
+
+Cannot read properties of null (reading 'username')
+TypeError: Cannot read properties of null (reading 'username')
+    at <anonymous> (http://localhost:8080/src/components/RecordModal.tsx?t=1774851279633:308:30)
+    at RecordModal (http://localhost:8080/src/components/RecordModal.tsx?t=1774851279633:249:61)
+    at renderWithHooks (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:11596:26)
+    at mountIndeterminateComponent (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:14974:21)
+    at beginWork (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:15962:22)
+    at beginWork$1 (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:19806:22)
+    at performUnitOfWork (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:19251:20)
+    at workLoopSync (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:19190:13)
+    at renderRootSync (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:19169:15)
+    at recoverFromConcurrentError (http://localhost:8080/node_modules/.vite/deps/chunk-LPF6KSF2.js?v=15d5439d:18786:28)

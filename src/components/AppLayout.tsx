@@ -6,13 +6,13 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocation, Link } from "react-router-dom";
 import { useApiQuery } from "@/hooks/useApiQuery";
-import { api } from "@/lib/api";
+import { api, systemApi } from "@/lib/api";
 import { useState } from "react";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const location = useLocation();
-  const { data: notifications, refetch } = useApiQuery(["system", "notifications"], () => api.get<any[]>("/api/system/notifications"));
+  const { data: notifications, refetch } = useApiQuery(["system", "notifications"], () => systemApi.getNotifications());
   const unreadCount = notifications?.length || 0;
   
   // Breadcrumb generator

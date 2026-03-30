@@ -21,7 +21,7 @@ export default function InvoicePrint() {
     }
   );
   const data = rawData as any;
-  const { data: co } = useApiQuery(["settings", "company"], () => api.get<any>("/api/settings/company"));
+  const { data: co } = useApiQuery(["settings", "company"], () => api.get<any>("/api/v1/settings/company"));
 
   if (isLoading) return <LoadingState message={`Loading ${type || 'invoice'}...`} />;
   if (error || !data) return <ErrorState message={`Could not load ${type || 'invoice'}.`} />;

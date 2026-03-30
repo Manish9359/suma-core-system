@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { engineApi } from "@/lib/api";
 import { toast } from "sonner";
 import { Loader2, RefreshCcw } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 
 const statusMap: Record<string, string> = {
   Paid: "status-badge status-active",
@@ -30,13 +31,14 @@ const workflowMap: Record<string, string> = {
 };
 
 export default function SalesPage() {
+  const { user } = useAuth();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<any>(null);
   const [qtnModalOpen, setQtnModalOpen] = useState(false);
   const [editingQtn, setEditingQtn] = useState<any>(null);
   const { data: invoices, isLoading: invLoading, error: invError, refetch: refetchInv } = useApiQuery(["sales", "invoices"], salesApi.getInvoices);
   const { data: quotations, refetch: refetchQtn } = useApiQuery(["sales", "quotations"], salesApi.getQuotations);
-  const { data: summary } = useApiQuery(["sales", "summary"], salesApi.getSummary);
+  const { data: summary, refetch: refetchSummary } = useApiQuery(["sales", "summary"], salesApi.getSummary);
 
   const { data: customers } = useApiQuery(["crm", "customers"], crmApi.getCustomers);
   const { data: products } = useApiQuery(["inventory", "products"], inventoryApi.getProducts);
@@ -188,6 +190,23 @@ export default function SalesPage() {
                             )}
                           </td>
                           <td className="px-4 py-3 text-right flex items-center justify-end gap-1">
+                            {inv.status === "Draft" && (
+                              <Button 
+                                variant="outline" 
+                                size="sm" 
+                                className="h-8 text-[11px] gap-1.5 border-accent text-accent hover:bg-accent/10"
+                                onClick={async () => {
+                                  try {
+                                    await salesApi.submitInvoice(inv.id);
+                                    toast.success("Invoice Submitted Successfully");
+                                    refetchInv();
+                                    refetchSummary();
+                                  } catch (e: any) { toast.error(e.message); }
+                                }}
+                              >
+                                <CheckCircle className="h-3 w-3" /> Submit
+                              </Button>
+                            )}
                             {inv.workflow_state === "Pending Approval" && (user?.role === "Admin" || user?.role === "Manager") && (
                               <Button 
                                 variant="outline" 
@@ -215,7 +234,7 @@ export default function SalesPage() {
                                   setModalOpen(true);
                                 } catch (e) { console.error(e); }
                               }}
-                              disabled={inv.status === "Locked"}
+                              disabled={inv.status !== "Draft" && user?.role !== "Admin"}
                             >
                               Edit
                             </Button>
@@ -315,6 +334,7 @@ export default function SalesPage() {
           if (editingInvoice) await salesApi.updateInvoice(editingInvoice.id, payload);
           else await salesApi.createInvoice(payload);
           refetchInv();
+          refetchSummary();
           setEditingInvoice(null);
         }}
       />

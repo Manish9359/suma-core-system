@@ -12,7 +12,8 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from collections import defaultdict
 from datetime import datetime
-from app.security import hash_password, verify_password, create_token, get_current_user_token, has_permission
+from app.core.auth.security import hash_password, verify_password, create_access_token as create_token, get_current_user as get_current_user_token, check_permission as has_permission
+from app.api.v1.router import router as api_v1_router
 from app.schemas import (
     LoginReq, TokenRes, CustomerCreate, ProductCreate, 
     InvoiceCreate, EmployeeCreate, CompanySettingsUpdate
@@ -25,6 +26,9 @@ from app.schemas import (
 # Initialize DB tables
 Base.metadata.create_all(bind=engine)
 
+from app.core.doc.init_registry import initialize_registry
+initialize_registry()
+
 app = FastAPI(title="Extensible ERP API")
 
 app.add_middleware(
@@ -35,10 +39,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include Modular API v1
+app.include_router(api_v1_router, prefix="/api/v1")
+
 # ─── AUTHENTICATION ───
-@app.post("/api/auth/login", response_model=TokenRes)
+@app.post("/api/v1/auth/login", response_model=TokenRes)
 def login(data: LoginReq, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == data.email).first()
+    login_id = data.email or data.username
+    if not login_id:
+        raise HTTPException(status_code=400, detail="email/username is required")
+        
+    user = db.query(User).filter(User.username == login_id).first()
     if not user or not verify_password(data.password, user.password):
         raise HTTPException(status_code=401, detail="Invalid credential")
     if user.status == "Disabled":
@@ -50,12 +61,12 @@ def login(data: LoginReq, db: Session = Depends(get_db)):
         "user": {"id": user.id, "email": user.username, "name": str(user.username.split("@")[0]).capitalize(), "role": user.role}
     }
 
-@app.get("/api/auth/me")
+@app.get("/api/v1/auth/me")
 def get_me(user: User = Depends(get_current_user_token)):
     return {"id": user.id, "email": user.username, "name": str(user.username.split("@")[0]).capitalize(), "role": user.role, "status": user.status}
 
 # ─── COMPANY SETTINGS ───
-@app.get("/api/settings/company")
+@app.get("/api/v1/settings/company")
 def get_company_settings(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     conf = db.query(CompanySettings).filter(CompanySettings.tenant_id == user.tenant_id).first()
     if not conf:
@@ -65,7 +76,7 @@ def get_company_settings(db: Session = Depends(get_db), user: User = Depends(get
         db.commit()
     return conf
 
-@app.put("/api/settings/company")
+@app.put("/api/v1/settings/company")
 def update_company_settings(data: CompanySettingsUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if user.role != "Admin": raise HTTPException(403, "Admin access required")
     conf = db.query(CompanySettings).filter(CompanySettings.tenant_id == user.tenant_id).first()
@@ -81,7 +92,7 @@ def update_company_settings(data: CompanySettingsUpdate, db: Session = Depends(g
     return {"status": "success"}
 
 # ─── USER MANAGEMENT (ADMIN) ───
-@app.get("/api/system/users")
+@app.get("/api/v1/system/users")
 def list_users(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if user.role != "Admin":
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -93,7 +104,7 @@ class UserUpdate(BaseModel):
     status: str | None = None
     password: str | None = None
 
-@app.post("/api/system/users")
+@app.post("/api/v1/system/users")
 def create_user(data: UserUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if user.role != "Admin":
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -110,7 +121,7 @@ def create_user(data: UserUpdate, db: Session = Depends(get_db), user: User = De
     db.commit()
     return {"status": "success", "id": new_user.id}
 
-@app.delete("/api/system/users/{uid}")
+@app.delete("/api/v1/system/users/{uid}")
 def delete_user(uid: int, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if user.role != "Admin":
         raise HTTPException(status_code=403, detail="Admin access required")
@@ -121,11 +132,11 @@ def delete_user(uid: int, db: Session = Depends(get_db), user: User = Depends(ge
     return {"status": "success"}
 
 # --- ROLE & PERMISSION MANAGEMENT ---
-@app.get("/api/system/roles")
+@app.get("/api/v1/system/roles")
 def list_roles(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Role).filter(Role.tenant_id == user.tenant_id).all()
 
-@app.post("/api/system/roles")
+@app.post("/api/v1/system/roles")
 def create_role(name: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if user.role != "Admin": raise HTTPException(403, "Admin only")
     new_role = Role(name=name, tenant_id=user.tenant_id)
@@ -133,11 +144,11 @@ def create_role(name: str, db: Session = Depends(get_db), user: User = Depends(g
     db.commit()
     return {"status": "success", "id": new_role.id}
 
-@app.get("/api/system/roles/{rid}/permissions")
+@app.get("/api/v1/system/roles/{rid}/permissions")
 def get_role_permissions(rid: int, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Permission).filter_by(role_id=rid).all()
 
-@app.post("/api/system/roles/{rid}/permissions")
+@app.post("/api/v1/system/roles/{rid}/permissions")
 def update_role_permissions(rid: int, permissions: List[dict], db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if user.role != "Admin": raise HTTPException(403, "Admin only")
     # Clean old
@@ -159,7 +170,7 @@ def update_role_permissions(rid: int, permissions: List[dict], db: Session = Dep
     return {"status": "success"}
 
 # ─── WORKFLOW & SIGNATURES ───
-@app.post("/api/workflow/approve/{doctype}/{docid}")
+@app.post("/api/v1/workflow/approve/{doctype}/{docid}")
 def approve_document(doctype: str, docid: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if not has_permission(user, doctype, "submit", db):
         raise HTTPException(403, f"Insufficient permissions to approve {doctype}")
@@ -205,14 +216,14 @@ def approve_document(doctype: str, docid: str, db: Session = Depends(get_db), us
     
     return {"status": "Approved", "signature_id": sig.id}
 
-@app.get("/api/workflow/signatures/{doctype}/{docid}")
+@app.get("/api/v1/workflow/signatures/{doctype}/{docid}")
 def get_signatures(doctype: str, docid: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(WorkflowSignature).filter_by(doctype=doctype, docname=docid, tenant_id=user.tenant_id).all()
-@app.get("/api/system/notifications")
+@app.get("/api/v1/system/notifications")
 def get_notifications(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Notification).filter(Notification.user_id == user.id, Notification.read == False).order_by(Notification.created_at.desc()).all()
 
-@app.post("/api/system/notifications/{nid}/read")
+@app.post("/api/v1/system/notifications/{nid}/read")
 def read_notification(nid: int, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     notif = db.query(Notification).filter(Notification.id == nid, Notification.user_id == user.id).first()
     if notif:
@@ -221,7 +232,7 @@ def read_notification(nid: int, db: Session = Depends(get_db), user: User = Depe
     return {"status": "success"}
 
 # ─── PURCHASING ───
-@app.get("/api/purchasing/orders")
+@app.get("/api/v1/purchasing/orders")
 def get_purchasing(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(PurchaseOrder).filter(PurchaseOrder.tenant_id == user.tenant_id).all()
 
@@ -230,7 +241,7 @@ class PurchaseOrderCreate(BaseModel):
     date: str
     items: List[dict] # simplify for now
 
-@app.post("/api/purchasing/orders")
+@app.post("/api/v1/purchasing/orders")
 def create_purchasing(data: PurchaseOrderCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if not has_permission(user, "Purchase Order", "create", db):
         raise HTTPException(status_code=403, detail="Insufficient Purchase permissions")
@@ -243,7 +254,7 @@ def create_purchasing(data: PurchaseOrderCreate, db: Session = Depends(get_db), 
     return po
 
 # ─── DASHBOARD ───
-@app.get("/api/dashboard/kpis")
+@app.get("/api/v1/reports/kpis")
 def get_kpis(user: User = Depends(get_current_user_token), db: Session = Depends(get_db)):
     t_id = user.tenant_id
     total_sales = db.query(func.sum(Invoice.amount)).filter(Invoice.tenant_id == t_id, Invoice.status != "Draft").scalar() or 0
@@ -258,7 +269,7 @@ def get_kpis(user: User = Depends(get_current_user_token), db: Session = Depends
         "active_amcs": 0, "open_tickets": 0, "amc_change": "0", "tickets_change": "0"
     }
 
-@app.get("/api/dashboard/sales-chart")
+@app.get("/api/v1/reports/sales-chart")
 def get_sales_chart(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     invs = db.query(Invoice).filter(Invoice.tenant_id == user.tenant_id, Invoice.status != "Draft").all()
     months: Dict[str, float] = defaultdict(float)
@@ -269,7 +280,7 @@ def get_sales_chart(db: Session = Depends(get_db), user: User = Depends(get_curr
         except: pass
     return [{"month": k, "value": v} for k, v in months.items()] if months else []
 
-@app.get("/api/dashboard/revenue-chart")
+@app.get("/api/v1/reports/revenue-chart")
 def get_revenue_chart(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     ledgers = db.query(LedgerEntry).filter(LedgerEntry.tenant_id == user.tenant_id, LedgerEntry.account == "4100").all()
     months: Dict[str, float] = defaultdict(float)
@@ -280,12 +291,12 @@ def get_revenue_chart(db: Session = Depends(get_db), user: User = Depends(get_cu
         except: pass
     return [{"month": k, "value": v} for k, v in months.items()] if months else []
 
-@app.get("/api/dashboard/inventory-chart")
+@app.get("/api/v1/reports/inventory-chart")
 def get_inventory_chart(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     prods = db.query(Product).filter(Product.tenant_id == user.tenant_id, Product.stock > 0).limit(5).all()
     return [{"name": p.name, "value": float(p.stock)} for p in prods]
 
-@app.get("/api/dashboard/recent-activity")
+@app.get("/api/v1/reports/recent-activity")
 def get_recent_activity(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     recent_invs = db.query(Invoice).filter(Invoice.tenant_id == user.tenant_id).order_by(Invoice.id.desc()).limit(3).all()
     recent_leads = db.query(Lead).filter(Lead.tenant_id == user.tenant_id).order_by(Lead.id.desc()).limit(3).all()
@@ -294,12 +305,12 @@ def get_recent_activity(db: Session = Depends(get_db), user: User = Depends(get_
     return acts[:6]
 
 # ─── CUSTOMIZATION (DocTypes fields) ───
-@app.get("/api/system/fields/{module_name}")
+@app.get("/api/v1/system/fields/{module_name}")
 def get_custom_fields(module_name: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(CustomField).filter(CustomField.module == module_name, CustomField.tenant_id == user.tenant_id).all()
 
 # ─── CRM (Customers & Leads) ───
-@app.get("/api/crm/leads")
+@app.get("/api/v1/crm/leads")
 def list_leads(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Lead).filter(Lead.tenant_id == user.tenant_id).all()
 
@@ -310,7 +321,7 @@ class LeadCreate(BaseModel):
     email: str = ""
     source: str = ""
 
-@app.post("/api/crm/leads")
+@app.post("/api/v1/crm/leads")
 def create_lead(data: LeadCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if not has_permission(user, "CRM Lead", "create", db): 
         raise HTTPException(status_code=403, detail="Insufficient CRM permissions")
@@ -321,11 +332,11 @@ def create_lead(data: LeadCreate, db: Session = Depends(get_db), user: User = De
     db.refresh(lead)
     return lead
 
-@app.get("/api/crm/customers")
+@app.get("/api/v1/crm/customers")
 def list_customers(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Customer).filter(Customer.tenant_id == user.tenant_id).all()
 
-@app.post("/api/crm/customers")
+@app.post("/api/v1/crm/customers")
 def create_customer(data: CustomerCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if user.role != "Admin": raise HTTPException(403, "Admins only")
     cust_id = f"CUST-{uuid.uuid4().hex[:6].upper()}"
@@ -335,7 +346,7 @@ def create_customer(data: CustomerCreate, db: Session = Depends(get_db), user: U
     db.refresh(cust)
     return cust
 
-@app.put("/api/crm/customers/{cust_id}")
+@app.put("/api/v1/crm/customers/{cust_id}")
 def update_customer(cust_id: str, data: CustomerCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if user.role != "Admin": raise HTTPException(403, "Admins only")
     cust = db.query(Customer).filter_by(id=cust_id, tenant_id=user.tenant_id).first()
@@ -344,18 +355,18 @@ def update_customer(cust_id: str, data: CustomerCreate, db: Session = Depends(ge
     db.commit(); db.refresh(cust)
     return cust
 
-@app.delete("/api/crm/customers/{cust_id}")
+@app.delete("/api/v1/crm/customers/{cust_id}")
 def delete_customer(cust_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if user.role != "Admin": raise HTTPException(403, "Admins only")
     cust = db.query(Customer).filter_by(id=cust_id, tenant_id=user.tenant_id).first()
     if not cust: raise HTTPException(404)
     db.delete(cust); db.commit()
     return {"status": "deleted"}
-@app.get("/api/inventory/products")
+@app.get("/api/v1/inventory/products")
 def list_products(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Product).filter(Product.tenant_id == user.tenant_id).all()
 
-@app.post("/api/inventory/products")
+@app.post("/api/v1/inventory/products")
 def add_product(data: ProductCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if user.role != "Admin": raise HTTPException(403, "Admins only")
     prod = Product(tenant_id=user.tenant_id, **data.dict(exclude_unset=True))
@@ -364,7 +375,7 @@ def add_product(data: ProductCreate, db: Session = Depends(get_db), user: User =
     db.refresh(prod)
     return prod
 
-@app.put("/api/inventory/products/{sku}")
+@app.put("/api/v1/inventory/products/{sku}")
 def update_product(sku: str, data: ProductCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if user.role != "Admin": raise HTTPException(403, "Admins only")
     p = db.query(Product).filter_by(sku=sku, tenant_id=user.tenant_id).first()
@@ -375,7 +386,7 @@ def update_product(sku: str, data: ProductCreate, db: Session = Depends(get_db),
     db.refresh(p)
     return p
 
-@app.delete("/api/inventory/products/{sku}")
+@app.delete("/api/v1/inventory/products/{sku}")
 def delete_product(sku: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if user.role != "Admin": raise HTTPException(403, "Admins only")
     p = db.query(Product).filter_by(sku=sku, tenant_id=user.tenant_id).first()
@@ -384,7 +395,7 @@ def delete_product(sku: str, db: Session = Depends(get_db), user: User = Depends
     db.commit()
     return {"status": "deleted"}
 
-@app.get("/api/inventory/summary")
+@app.get("/api/v1/inventory/summary")
 def get_inv_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     t_id = user.tenant_id
     total_val = db.query(func.sum(Product.stock * Product.cost)).filter(Product.tenant_id == t_id).scalar() or 0
@@ -396,11 +407,11 @@ def get_inv_summary(db: Session = Depends(get_db), user: User = Depends(get_curr
     }
 
 # ─── ACCOUNTING & SALES (Invoices) ───
-@app.get("/api/sales/invoices")
+@app.get("/api/v1/sales/invoices")
 def list_invoices(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Invoice).filter(Invoice.tenant_id == user.tenant_id).all()
 
-@app.get("/api/sales/invoices/{inv_id}")
+@app.get("/api/v1/sales/invoices/{inv_id}")
 def get_invoice(inv_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     inv = db.query(Invoice).filter_by(id=inv_id, tenant_id=user.tenant_id).first()
     if not inv: raise HTTPException(404, "Invoice not found")
@@ -443,7 +454,7 @@ class InvoiceCreateExtended(BaseModel):
     discount: float = 0.0
     custom_data: dict = {}
 
-@app.post("/api/sales/invoices")
+@app.post("/api/v1/sales/invoices")
 def add_invoice(data: InvoiceCreateExtended, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     inv_id = f"INV-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}"
     total = sum([item.get("qty",0) * item.get("rate",0) for item in data.items])
@@ -488,7 +499,7 @@ def add_invoice(data: InvoiceCreateExtended, db: Session = Depends(get_db), user
     db.refresh(inv)
     return inv
 
-@app.put("/api/sales/invoices/{inv_id}")
+@app.put("/api/v1/sales/invoices/{inv_id}")
 def update_invoice(inv_id: str, data: InvoiceCreateExtended, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     inv = db.query(Invoice).filter_by(id=inv_id, tenant_id=user.tenant_id).first()
     if not inv: raise HTTPException(404, "Invoice not found")
@@ -520,7 +531,7 @@ def update_invoice(inv_id: str, data: InvoiceCreateExtended, db: Session = Depen
     db.refresh(inv)
     return inv
 
-@app.delete("/api/sales/invoices/{inv_id}")
+@app.delete("/api/v1/sales/invoices/{inv_id}")
 def delete_invoice(inv_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if user.role != "Admin": raise HTTPException(403, "Admins only")
     inv = db.query(Invoice).filter_by(id=inv_id, tenant_id=user.tenant_id).first()
@@ -533,7 +544,7 @@ def delete_invoice(inv_id: str, db: Session = Depends(get_db), user: User = Depe
 from typing import List
 
 # ─── PURCHASING ───
-@app.get("/api/purchasing/orders")
+@app.get("/api/v1/purchasing/orders")
 def get_purchasing(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(PurchaseOrder).filter(PurchaseOrder.tenant_id == user.tenant_id).all()
 
@@ -542,7 +553,7 @@ class PurchaseOrderCreate(BaseModel):
     date: str
     items: List[dict]
 
-@app.post("/api/purchasing/orders")
+@app.post("/api/v1/purchasing/orders")
 def create_purchasing(data: PurchaseOrderCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     po_id = f"PO-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}"
     total = sum([(i.get("qty", 0) * i.get("rate", 0)) for i in data.items])
@@ -553,20 +564,20 @@ def create_purchasing(data: PurchaseOrderCreate, db: Session = Depends(get_db), 
     return po
 
 # ─── ACCOUNTING ───
-@app.get("/api/accounting/accounts")
+@app.get("/api/v1/accounting/accounts")
 def get_accounts(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Account).filter(Account.tenant_id == user.tenant_id).all()
 
-@app.get("/api/accounting/summary")
+@app.get("/api/v1/accounting/summary")
 def get_acc_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return {"total_revenue": "₹0", "total_expenses": "₹0", "net_profit": "₹0", "gst_payable": "₹0"}
 
 # ─── HR ───
-@app.get("/api/hr/employees")
+@app.get("/api/v1/hr/employees")
 def list_employees(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Employee).filter(Employee.tenant_id == user.tenant_id).all()
 
-@app.post("/api/hr/employees")
+@app.post("/api/v1/hr/employees")
 def add_employee(data: EmployeeCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     emp_id = f"EMP-{uuid.uuid4().hex[:4].upper()}"
     emp = Employee(
@@ -578,7 +589,7 @@ def add_employee(data: EmployeeCreate, db: Session = Depends(get_db), user: User
     db.refresh(emp)
     return emp
 
-@app.get("/api/hr/summary")
+@app.get("/api/v1/hr/summary")
 def get_hr_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     count = db.query(Employee).filter(Employee.tenant_id == user.tenant_id).count()
     payroll = db.query(func.sum(Employee.salary)).filter(Employee.tenant_id == user.tenant_id).scalar() or 0
@@ -606,7 +617,7 @@ initialize_system()
 
 # ─── MISSING DASHBOARD CHARTS & ACTIVITY ───
 # ─── DASHBOARD ANALYTICS ───
-@app.get("/api/dashboard/kpis")
+@app.get("/api/v1/dashboard/kpis")
 def get_kpis(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     total_sales = db.query(func.sum(Invoice.amount)).filter(Invoice.tenant_id == user.tenant_id).scalar() or 0
     pending_count = db.query(Invoice).filter(Invoice.tenant_id == user.tenant_id, Invoice.status != "Paid").count()
@@ -629,32 +640,32 @@ def get_kpis(db: Session = Depends(get_db), user: User = Depends(get_current_use
         "tickets_change": "0"
     }
 
-@app.get("/api/dashboard/sales-chart")
+@app.get("/api/v1/dashboard/sales-chart")
 def get_sales_chart(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     # Group by month logic (simplified)
     # real query: db.query(func.strftime('%m', Invoice.date), func.sum(Invoice.amount))...
     return [{"month": "Jan", "value": 4000}, {"month": "Feb", "value": 3000}]
 
-@app.get("/api/dashboard/revenue-chart")
+@app.get("/api/v1/dashboard/revenue-chart")
 def get_revenue_chart(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return [{"month": "Jan", "value": 14000}, {"month": "Feb", "value": 23000}]
 
-@app.get("/api/dashboard/inventory-chart")
+@app.get("/api/v1/dashboard/inventory-chart")
 def get_inventory_chart(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     # Real query: group by category
     cats = db.query(Product.category, func.count(Product.sku)).filter(Product.tenant_id == user.tenant_id).group_by(Product.category).all()
     return [{"name": c[0] or "Uncategorized", "value": c[1]} for c in cats]
 
-@app.get("/api/dashboard/recent-activity")
+@app.get("/api/v1/dashboard/recent-activity")
 def get_recent_activity(user: User = Depends(get_current_user_token)):
     return [{"text": "System health check passed", "time": "Just now"}, {"text": "Automatic data backup completed", "time": "1h ago"}]
 
 # ─── MISSING SALES ENDPOINTS ───
-@app.get("/api/sales/quotations")
+@app.get("/api/v1/sales/quotations")
 def get_quotations(user: User = Depends(get_current_user_token)):
     return []
 
-@app.get("/api/sales/summary")
+@app.get("/api/v1/sales/summary")
 def get_sales_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     total = db.query(func.sum(Invoice.amount)).filter(Invoice.tenant_id == user.tenant_id).scalar() or 0
     paid = db.query(func.sum(PaymentEntry.amount)).filter(PaymentEntry.tenant_id == user.tenant_id, PaymentEntry.party_type == "Customer").scalar() or 0
@@ -664,7 +675,7 @@ def get_sales_summary(db: Session = Depends(get_db), user: User = Depends(get_cu
         "outstanding": f"₹{float(total - paid):,.0f}"
     }
 
-@app.get("/api/inventory/summary")
+@app.get("/api/v1/inventory/summary")
 def get_inventory_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     count = db.query(Product).filter(Product.tenant_id == user.tenant_id).count()
     value = db.query(func.sum(Product.stock * Product.cost)).filter(Product.tenant_id == user.tenant_id).scalar() or 0
@@ -677,18 +688,20 @@ def get_inventory_summary(db: Session = Depends(get_db), user: User = Depends(ge
         "warehouses": wh
     }
 
-@app.get("/api/inventory/stock-by-warehouse")
+@app.get("/api/v1/inventory/stock-by-warehouse")
 def get_stock_by_warehouse(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    # Aggregate StockLedger by item and warehouse
     results = db.query(
-        StockLedger.item_code,
-        StockLedger.warehouse,
-        func.sum(StockLedger.qty).label("actual_qty")
-    ).filter(StockLedger.tenant_id == user.tenant_id).group_by(StockLedger.item_code, StockLedger.warehouse).all()
-    
+        Product.sku.label("item_code"),
+        Product.warehouse,
+        Product.stock.label("actual_qty")
+    ).filter(Product.tenant_id == user.tenant_id, Product.stock > 0).all()
     return [dict(zip(["item_code", "warehouse", "actual_qty"], r)) for r in results]
 
-@app.post("/api/purchasing/requests")
+@app.get("/api/v1/inventory/ledger")
+def get_stock_ledger(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
+    return db.query(StockLedger).filter(StockLedger.tenant_id == user.tenant_id).order_by(StockLedger.id.desc()).limit(100).all()
+
+@app.post("/api/v1/purchasing/requests")
 def create_material_request(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     items = data.pop("items", [])
     mr = MaterialRequest(**data, id=f"MR-{uuid.uuid4().hex[:6].upper()}", tenant_id=user.tenant_id)
@@ -697,24 +710,24 @@ def create_material_request(data: dict, db: Session = Depends(get_db), user: Use
     db.commit(); db.refresh(mr); return mr
 
 # ─── MISSING SERVICE, AMC, INSTALLATION STUBS ───
-@app.get("/api/accounting/ledger")
+@app.get("/api/v1/accounting/ledger")
 def get_ledger(user: User = Depends(get_current_user_token)): return []
 
-@app.get("/api/service/tickets")
+@app.get("/api/v1/service/tickets")
 def get_tickets(user: User = Depends(get_current_user_token)): return []
 
-@app.get("/api/service/summary")
+@app.get("/api/v1/service/summary")
 def get_service_summary(user: User = Depends(get_current_user_token)):
     return {"open": 0, "in_progress": 0, "resolved": 0, "closed": 0}
 
-@app.get("/api/amc/contracts")
+@app.get("/api/v1/amc/contracts")
 def get_contracts(user: User = Depends(get_current_user_token)): return []
 
-@app.get("/api/amc/summary")
+@app.get("/api/v1/amc/summary")
 def get_amc_summary(user: User = Depends(get_current_user_token)):
     return {"active": 0, "renewal_due": 0, "expired": 0}
 
-@app.get("/api/installations/projects")
+@app.get("/api/v1/installations/projects")
 def get_projects(user: User = Depends(get_current_user_token)): return []
 
 # ─── COMPANY SETTINGS ───
@@ -730,7 +743,7 @@ class CompanySettingsSchema(BaseModel):
     bank_branch: str = ""
     terms: str = ""
 
-@app.get("/api/settings/company")
+@app.get("/api/v1/settings/company")
 def get_company_settings(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     s = db.query(CompanySettings).filter_by(tenant_id=user.tenant_id).first()
     if not s:
@@ -740,7 +753,7 @@ def get_company_settings(db: Session = Depends(get_db), user: User = Depends(get
         db.refresh(s)
     return s
 
-@app.put("/api/settings/company")
+@app.put("/api/v1/settings/company")
 def save_company_settings(data: CompanySettingsSchema, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if user.role != "Admin": raise HTTPException(403, "Admins only")
     s = db.query(CompanySettings).filter_by(tenant_id=user.tenant_id).first()
@@ -762,11 +775,11 @@ class QuotationCreateSchema(BaseModel):
     discount: float = 0.0
     custom_data: dict = {}
 
-@app.get("/api/sales/quotations")
+@app.get("/api/v1/sales/quotations")
 def list_quotations(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Quotation).filter(Quotation.tenant_id == user.tenant_id).all()
 
-@app.get("/api/sales/quotations/{q_id}")
+@app.get("/api/v1/sales/quotations/{q_id}")
 def get_quotation(q_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     q = db.query(Quotation).filter_by(id=q_id, tenant_id=user.tenant_id).first()
     if not q: raise HTTPException(404, "Quotation not found")
@@ -778,7 +791,7 @@ def get_quotation(q_id: str, db: Session = Depends(get_db), user: User = Depends
     cust = db.query(Customer).filter_by(company=q.customer, tenant_id=user.tenant_id).first()
     return {"id": q.id, "customer": q.customer, "customer_name": q.customer, "date": q.date, "valid_till": q.valid_till, "status": q.status, "amount": q.amount, "grand_total": q.grand_total, "custom_data": q.custom_data, "items": out_items, "customer_contact": cust.contact if cust else "", "customer_address": cust.address if cust else "", "customer_gst": cust.gst if cust else ""}
 
-@app.post("/api/sales/quotations")
+@app.post("/api/v1/sales/quotations")
 def create_quotation(data: QuotationCreateSchema, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     q_id = f"QTN-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}"
     total = sum([item.get("qty",0) * item.get("rate",0) for item in data.items])
@@ -795,7 +808,7 @@ def create_quotation(data: QuotationCreateSchema, db: Session = Depends(get_db),
     db.refresh(q)
     return q
 
-@app.put("/api/sales/quotations/{q_id}")
+@app.put("/api/v1/sales/quotations/{q_id}")
 def update_quotation(q_id: str, data: QuotationCreateSchema, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     q = db.query(Quotation).filter_by(id=q_id, tenant_id=user.tenant_id).first()
     if not q: raise HTTPException(404, "Quotation not found")
@@ -814,7 +827,7 @@ def update_quotation(q_id: str, data: QuotationCreateSchema, db: Session = Depen
     db.commit(); db.refresh(q)
     return q
 
-@app.delete("/api/sales/quotations/{q_id}")
+@app.delete("/api/v1/sales/quotations/{q_id}")
 def delete_quotation(q_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if user.role != "Admin": raise HTTPException(403, "Admins only")
     q = db.query(Quotation).filter_by(id=q_id, tenant_id=user.tenant_id).first()
@@ -825,36 +838,36 @@ def delete_quotation(q_id: str, db: Session = Depends(get_db), user: User = Depe
 # --- NEW ERP MODULES ---
 
 # Projects
-@app.get("/api/projects")
+@app.get("/api/v1/projects")
 def get_projects(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Project).filter(Project.tenant_id == user.tenant_id).all()
 
-@app.post("/api/projects")
+@app.post("/api/v1/projects")
 def create_project(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     p = Project(**data, tenant_id=user.tenant_id)
     db.add(p); db.commit(); db.refresh(p)
     return p
 
 # --- ASSETS ---
-@app.get("/api/assets")
+@app.get("/api/v1/assets")
 def get_assets(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Asset).filter(Asset.tenant_id == user.tenant_id).all()
 
-@app.post("/api/assets")
+@app.post("/api/v1/assets")
 def create_asset(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     a = Asset(**data, id=f"ASSET-{uuid.uuid4().hex[:6].upper()}", tenant_id=user.tenant_id)
     db.add(a); db.commit(); db.refresh(a)
     return a
 
 # --- QUALITY INSPECTION ---
-@app.post("/api/quality/inspect")
+@app.post("/api/v1/quality/inspect")
 def quality_inspect(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     qi = QualityInspection(**data, id=f"QI-{uuid.uuid4().hex[:6].upper()}", tenant_id=user.tenant_id)
     db.add(qi); db.commit(); db.refresh(qi)
     return qi
 
 # --- SUBCONTRACTING ---
-@app.post("/api/subcontract/transfer")
+@app.post("/api/v1/subcontract/transfer")
 def subcontract_transfer(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     # Transfer raw materials to vendor warehouse
     # Expected data: item_code, qty, from_warehouse, to_warehouse (vendor)
@@ -878,79 +891,79 @@ def subcontract_transfer(data: dict, db: Session = Depends(get_db), user: User =
     db.commit()
     return {"status": "Subcontract material transferred", "id": se.id}
 
-@app.get("/api/reports/profit-loss")
+@app.get("/api/v1/reports/profit-loss")
 def get_pl_report(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     # Basic P&L logic
     income = db.query(func.sum(Invoice.amount)).filter(Invoice.tenant_id == user.tenant_id).scalar() or 0
     expense = db.query(func.sum(PurchaseOrder.total)).filter(PurchaseOrder.tenant_id == user.tenant_id).scalar() or 0
     return {"income": income, "expense": expense, "profit": income - expense}
 
-@app.put("/api/warehouses/{w_id}")
+@app.put("/api/v1/warehouses/{w_id}")
 def update_warehouse(w_id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     w = db.query(Warehouse).filter_by(id=w_id, tenant_id=user.tenant_id).first()
     if not w: raise HTTPException(404)
     for k, v in data.items(): setattr(w, k, v)
     db.commit(); return w
 
-@app.delete("/api/warehouses/{w_id}")
+@app.delete("/api/v1/warehouses/{w_id}")
 def delete_warehouse(w_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     w = db.query(Warehouse).filter_by(id=w_id, tenant_id=user.tenant_id).first()
     if not w: raise HTTPException(404)
     db.delete(w); db.commit(); return {"status": "ok"}
 
 # Suppliers
-@app.get("/api/suppliers")
+@app.get("/api/v1/suppliers")
 def get_suppliers(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Supplier).filter(Supplier.tenant_id == user.tenant_id).all()
 
-@app.post("/api/suppliers")
+@app.post("/api/v1/suppliers")
 def create_supplier(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     s = Supplier(**data, tenant_id=user.tenant_id)
     db.add(s); db.commit(); db.refresh(s); return s
 
-@app.put("/api/suppliers/{s_id}")
+@app.put("/api/v1/suppliers/{s_id}")
 def update_supplier(s_id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     s = db.query(Supplier).filter_by(id=s_id, tenant_id=user.tenant_id).first()
     if not s: raise HTTPException(404)
     for k, v in data.items(): setattr(s, k, v)
     db.commit(); return s
 
-@app.delete("/api/suppliers/{s_id}")
+@app.delete("/api/v1/suppliers/{s_id}")
 def delete_supplier(s_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     s = db.query(Supplier).filter_by(id=s_id, tenant_id=user.tenant_id).first()
     if not s: raise HTTPException(404)
     db.delete(s); db.commit(); return {"status": "ok"}
 
 # HR - Employees
-@app.get("/api/hr/employees")
+@app.get("/api/v1/hr/employees")
 def get_employees(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Employee).filter(Employee.tenant_id == user.tenant_id).all()
 
-@app.post("/api/hr/employees")
+@app.post("/api/v1/hr/employees")
 def create_employee(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     e = Employee(**data, tenant_id=user.tenant_id)
     db.add(e); db.commit(); db.refresh(e); return e
 
-@app.put("/api/hr/employees/{id}")
+@app.put("/api/v1/hr/employees/{id}")
 def update_employee(id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     e = db.query(Employee).filter_by(id=id, tenant_id=user.tenant_id).first()
     if not e: raise HTTPException(404)
     for k, v in data.items(): setattr(e, k, v)
     db.commit(); return e
 
-@app.delete("/api/hr/employees/{id}")
+@app.delete("/api/v1/hr/employees/{id}")
 def delete_employee(id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     e = db.query(Employee).filter_by(id=id, tenant_id=user.tenant_id).first()
     if not e: raise HTTPException(404)
     db.delete(e); db.commit(); return {"status": "ok"}
 
 # HR - Attendance
-@app.get("/api/hr/attendance")
+@app.get("/api/v1/hr/attendance")
 def get_attendance(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     res = db.query(Attendance, Employee.name).join(Employee, Attendance.employee_id == Employee.id).filter(Attendance.tenant_id == user.tenant_id).order_by(Attendance.date.desc()).all()
     return [{**a[0].__dict__, "employee_name": a[1]} for a in res]
 
-@app.post("/api/hr/attendance")
+@app.post("/api/v1/hr/attendance")
 def mark_attendance(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     att = db.query(Attendance).filter_by(employee_id=data["employee_id"], date=data["date"], tenant_id=user.tenant_id).first()
     if att:
@@ -962,12 +975,12 @@ def mark_attendance(data: dict, db: Session = Depends(get_db), user: User = Depe
     return att
 
 # HR - Payroll
-@app.get("/api/hr/salary_slips")
+@app.get("/api/v1/hr/salary_slips")
 def get_salary_slips(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     res = db.query(SalarySlip, Employee.name).join(Employee, SalarySlip.employee_id == Employee.id).filter(SalarySlip.tenant_id == user.tenant_id).all()
     return [{**s[0].__dict__, "employee_name": s[1]} for s in res]
 
-@app.post("/api/hr/salary_slips")
+@app.post("/api/v1/hr/salary_slips")
 def create_salary_slip(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     slip_id = f"PAY-{uuid.uuid4().hex[:6].upper()}"
     slip = SalarySlip(**data, id=slip_id, tenant_id=user.tenant_id)
@@ -980,7 +993,7 @@ def create_salary_slip(data: dict, db: Session = Depends(get_db), user: User = D
     db.add(slip); db.commit(); db.refresh(slip)
     return slip
 
-@app.put("/api/hr/salary_slips/{id}")
+@app.put("/api/v1/hr/salary_slips/{id}")
 def update_salary_slip(id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     slip = db.query(SalarySlip).filter_by(id=id, tenant_id=user.tenant_id).first()
     if not slip: raise HTTPException(404)
@@ -994,11 +1007,11 @@ def update_salary_slip(id: str, data: dict, db: Session = Depends(get_db), user:
     db.commit(); return slip
 
 # Stock Entries
-@app.get("/api/stock/entries")
+@app.get("/api/v1/stock/entries")
 def get_stock_entries(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(StockEntry).filter(StockEntry.tenant_id == user.tenant_id).all()
 
-@app.post("/api/stock/entries")
+@app.post("/api/v1/stock/entries")
 def create_stock_entry(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     items = data.pop("items", [])
     se = StockEntry(**data, id=f"SE-{uuid.uuid4().hex[:6].upper()}", tenant_id=user.tenant_id)
@@ -1025,22 +1038,22 @@ def create_stock_entry(data: dict, db: Session = Depends(get_db), user: User = D
 # --- EXPANDED ERP API ---
 
 # Stock Ledger
-@app.get("/api/inventory/ledger")
+@app.get("/api/v1/inventory/ledger")
 def get_stock_ledger(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(StockLedger).filter(StockLedger.tenant_id == user.tenant_id).order_by(StockLedger.date.desc()).all()
 
 # Leads
-@app.get("/api/crm/leads")
+@app.get("/api/v1/crm/leads")
 def get_leads(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Lead).filter(Lead.tenant_id == user.tenant_id).all()
 
-@app.post("/api/crm/leads")
+@app.post("/api/v1/crm/leads")
 def create_lead(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     l = Lead(**data, id=f"LEAD-{uuid.uuid4().hex[:4].upper()}", tenant_id=user.tenant_id)
     db.add(l); db.commit(); db.refresh(l)
     return l
 
-@app.post("/api/crm/leads/{lead_id}/quotation")
+@app.post("/api/v1/crm/leads/{lead_id}/quotation")
 def convert_lead_to_quotation(lead_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     lead = db.query(Lead).filter_by(id=lead_id, tenant_id=user.tenant_id).first()
     if not lead: raise HTTPException(404)
@@ -1051,11 +1064,11 @@ def convert_lead_to_quotation(lead_id: str, db: Session = Depends(get_db), user:
     return q
 
 # Material Requests
-@app.get("/api/purchasing/requests")
+@app.get("/api/v1/purchasing/requests")
 def get_material_requests(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(MaterialRequest).filter(MaterialRequest.tenant_id == user.tenant_id).all()
 
-@app.post("/api/purchasing/requests")
+@app.post("/api/v1/purchasing/requests")
 def create_material_request(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     items = data.pop("items", [])
     mr = MaterialRequest(**data, id=f"MR-{uuid.uuid4().hex[:4].upper()}", tenant_id=user.tenant_id)
@@ -1065,7 +1078,7 @@ def create_material_request(data: dict, db: Session = Depends(get_db), user: Use
     db.commit(); db.refresh(mr)
     return mr
 
-@app.post("/api/purchasing/requests/{mr_id}/order")
+@app.post("/api/v1/purchasing/requests/{mr_id}/order")
 def create_po_from_mr(mr_id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     mr = db.query(MaterialRequest).filter_by(id=mr_id, tenant_id=user.tenant_id).first()
     if not mr: raise HTTPException(404)
@@ -1078,11 +1091,11 @@ def create_po_from_mr(mr_id: str, data: dict, db: Session = Depends(get_db), use
     db.commit(); db.refresh(po)
     return po
 
-@app.get("/api/sales/orders")
+@app.get("/api/v1/sales/orders")
 def get_sales_orders(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(SalesOrder).filter(SalesOrder.tenant_id == user.tenant_id).all()
 
-@app.get("/api/purchasing/orders/{po_id}")
+@app.get("/api/v1/purchasing/orders/{po_id}")
 def get_purchase_order(po_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     po = db.query(PurchaseOrder).filter_by(id=po_id, tenant_id=user.tenant_id).first()
     if not po: raise HTTPException(404)
@@ -1095,11 +1108,11 @@ def get_purchase_order(po_id: str, db: Session = Depends(get_db), user: User = D
         "vendor": po.vendor, "vendor_name": po.vendor, "vendor_address": supp.address if supp else ""
     }
 
-@app.get("/api/purchasing/receipts")
+@app.get("/api/v1/purchasing/receipts")
 def get_purchase_receipts(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(PurchaseReceipt).filter(PurchaseReceipt.tenant_id == user.tenant_id).all()
 
-@app.get("/api/purchasing/receipts/{pr_id}")
+@app.get("/api/v1/purchasing/receipts/{pr_id}")
 def get_purchase_receipt(pr_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     pr = db.query(PurchaseReceipt).filter_by(id=pr_id, tenant_id=user.tenant_id).first()
     if not pr: raise HTTPException(404)
@@ -1109,7 +1122,7 @@ def get_purchase_receipt(pr_id: str, db: Session = Depends(get_db), user: User =
         "supplier": pr.supplier, "supplier_name": pr.supplier
     }
 
-@app.post("/api/sales/orders")
+@app.post("/api/v1/sales/orders")
 def create_sales_order(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     items = data.pop("items", [])
     so = SalesOrder(**data, id=f"SO-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}", tenant_id=user.tenant_id)
@@ -1119,7 +1132,7 @@ def create_sales_order(data: dict, db: Session = Depends(get_db), user: User = D
     db.commit(); db.refresh(so)
     return so
 
-@app.put("/api/sales/orders/{so_id}")
+@app.put("/api/v1/sales/orders/{so_id}")
 def update_sales_order(so_id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     so = db.query(SalesOrder).filter_by(id=so_id, tenant_id=user.tenant_id).first()
     if not so: raise HTTPException(404)
@@ -1129,7 +1142,7 @@ def update_sales_order(so_id: str, data: dict, db: Session = Depends(get_db), us
     for i in items: db.add(SalesOrderItem(**i, parent_id=so.id))
     db.commit(); return so
 
-@app.delete("/api/sales/orders/{so_id}")
+@app.delete("/api/v1/sales/orders/{so_id}")
 def delete_sales_order(so_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     so = db.query(SalesOrder).filter_by(id=so_id, tenant_id=user.tenant_id).first()
     if not so: raise HTTPException(404)
@@ -1137,11 +1150,11 @@ def delete_sales_order(so_id: str, db: Session = Depends(get_db), user: User = D
     db.delete(so); db.commit(); return {"status": "ok"}
 
 # Purchasing - Orders
-@app.get("/api/purchasing/orders")
+@app.get("/api/v1/purchasing/orders")
 def get_purchase_orders(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(PurchaseOrder).filter(PurchaseOrder.tenant_id == user.tenant_id).all()
 
-@app.get("/api/purchasing/orders/{po_id}")
+@app.get("/api/v1/purchasing/orders/{po_id}")
 def get_purchase_order(po_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     po = db.query(PurchaseOrder).filter_by(id=po_id, tenant_id=user.tenant_id).first()
     if not po: raise HTTPException(404)
@@ -1149,7 +1162,7 @@ def get_purchase_order(po_id: str, db: Session = Depends(get_db), user: User = D
     supplier = db.query(Supplier).filter_by(name=po.vendor, tenant_id=user.tenant_id).first()
     return {"id": po.id, "vendor": po.vendor, "date": po.date, "total": po.total, "status": po.status, "items": items, "supplier_name": po.vendor, "supplier_address": supplier.address if supplier else "", "supplier_gst": supplier.id if supplier else ""}
 
-@app.post("/api/purchasing/orders")
+@app.post("/api/v1/purchasing/orders")
 def create_purchase_order(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     items = data.pop("items", [])
     po = PurchaseOrder(**data, id=f"PO-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}", tenant_id=user.tenant_id)
@@ -1157,7 +1170,7 @@ def create_purchase_order(data: dict, db: Session = Depends(get_db), user: User 
     for i in items: db.add(PurchaseOrderItem(**i, parent_id=po.id))
     db.commit(); db.refresh(po); return po
 
-@app.put("/api/purchasing/orders/{po_id}")
+@app.put("/api/v1/purchasing/orders/{po_id}")
 def update_purchase_order(po_id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     po = db.query(PurchaseOrder).filter_by(id=po_id, tenant_id=user.tenant_id).first()
     if not po: raise HTTPException(404)
@@ -1167,7 +1180,7 @@ def update_purchase_order(po_id: str, data: dict, db: Session = Depends(get_db),
     for i in items: db.add(PurchaseOrderItem(**i, parent_id=po.id))
     db.commit(); return po
 
-@app.delete("/api/purchasing/orders/{po_id}")
+@app.delete("/api/v1/purchasing/orders/{po_id}")
 def delete_purchase_order(po_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     po = db.query(PurchaseOrder).filter_by(id=po_id, tenant_id=user.tenant_id).first()
     if not po: raise HTTPException(404)
@@ -1175,20 +1188,20 @@ def delete_purchase_order(po_id: str, db: Session = Depends(get_db), user: User 
     db.delete(po); db.commit(); return {"status": "ok"}
 
 # Asset CRUD
-@app.put("/api/assets/{a_id}")
+@app.put("/api/v1/assets/{a_id}")
 def update_asset(a_id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     a = db.query(Asset).filter_by(id=a_id, tenant_id=user.tenant_id).first()
     if not a: raise HTTPException(404)
     for k, v in data.items(): setattr(a, k, v); 
     db.commit(); return a
 
-@app.delete("/api/assets/{a_id}")
+@app.delete("/api/v1/assets/{a_id}")
 def delete_asset(a_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     a = db.query(Asset).filter_by(id=a_id, tenant_id=user.tenant_id).first()
     if not a: raise HTTPException(404)
     db.delete(a); db.commit(); return {"status": "ok"}
 
-@app.post("/api/purchasing/receipts")
+@app.post("/api/v1/purchasing/receipts")
 def create_purchase_receipt(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     items = data.pop("items", [])
     pr = PurchaseReceipt(**data, id=f"PR-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}", tenant_id=user.tenant_id)
@@ -1214,11 +1227,11 @@ def create_purchase_receipt(data: dict, db: Session = Depends(get_db), user: Use
     db.commit(); db.refresh(pr); return pr
 
 # BOM (Manufacturing)
-@app.get("/api/manufacturing/bom")
+@app.get("/api/v1/manufacturing/bom")
 def get_boms(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(BOM).filter(BOM.tenant_id == user.tenant_id).all()
 
-@app.post("/api/manufacturing/bom")
+@app.post("/api/v1/manufacturing/bom")
 def create_bom(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     items = data.pop("items", [])
     bom = BOM(**data, id=f"BOM-{data['item_code']}", tenant_id=user.tenant_id)
@@ -1226,7 +1239,7 @@ def create_bom(data: dict, db: Session = Depends(get_db), user: User = Depends(g
     for i in items: db.add(BOMItem(**i, parent_id=bom.id))
     db.commit(); db.refresh(bom); return bom
 
-@app.put("/api/manufacturing/bom/{bom_id}")
+@app.put("/api/v1/manufacturing/bom/{bom_id}")
 def update_bom(bom_id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     bom = db.query(BOM).filter_by(id=bom_id, tenant_id=user.tenant_id).first()
     if not bom: raise HTTPException(404)
@@ -1236,14 +1249,14 @@ def update_bom(bom_id: str, data: dict, db: Session = Depends(get_db), user: Use
     for i in items: db.add(BOMItem(**i, parent_id=bom.id))
     db.commit(); return bom
 
-@app.delete("/api/manufacturing/bom/{bom_id}")
+@app.delete("/api/v1/manufacturing/bom/{bom_id}")
 def delete_bom(bom_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     bom = db.query(BOM).filter_by(id=bom_id, tenant_id=user.tenant_id).first()
     if not bom: raise HTTPException(404)
     db.query(BOMItem).filter_by(parent_id=bom_id).delete()
     db.delete(bom); db.commit(); return {"status": "ok"}
 
-@app.post("/api/manufacturing/produce")
+@app.post("/api/v1/manufacturing/produce")
 def produce_from_bom(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     bom_id = data.get("bom_id")
     qty = float(data.get("qty", 1))
@@ -1281,7 +1294,7 @@ import io
 from fastapi.responses import StreamingResponse
 
 # --- REPORTING ENGINE ---
-@app.get("/api/reports/view/{type}")
+@app.get("/api/v1/reports/view/{type}")
 def view_report(type: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     if type == "sales":
         data = db.query(Invoice.id, Invoice.customer, Invoice.date, Invoice.amount, Invoice.status).filter(Invoice.tenant_id == user.tenant_id).all()
@@ -1307,7 +1320,7 @@ def view_report(type: str, db: Session = Depends(get_db), user: User = Depends(g
         ]
     return []
 
-@app.get("/api/reports/generate")
+@app.get("/api/v1/reports/generate")
 def generate_report(type: str, format: str = "csv", db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     data = view_report(type, db, user)
     df = pd.DataFrame(data)
@@ -1334,7 +1347,7 @@ def fill_zero(val):
     try: return float(val or 0)
     except: return 0.0
 
-@app.post("/api/inventory/products")
+@app.post("/api/v1/inventory/products")
 def create_product(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     sku = data.get("sku") or f"ITEM-{uuid.uuid4().hex[:4].upper()}"
     p = Product(
@@ -1360,7 +1373,7 @@ def create_product(data: dict, db: Session = Depends(get_db), user: User = Depen
         ))
     db.commit(); db.refresh(p); return p
 
-@app.post("/api/sales/invoices")
+@app.post("/api/v1/sales/invoices")
 def create_invoice(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     items = data.pop("items", [])
     inv_id = f"INV-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}"
@@ -1409,29 +1422,29 @@ def create_invoice(data: dict, db: Session = Depends(get_db), user: User = Depen
     db.commit(); db.refresh(inv); return inv
 
 # --- WAREHOUSES ---
-@app.get("/api/warehouses")
+@app.get("/api/v1/warehouses")
 def get_warehouses(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     return db.query(Warehouse).filter(Warehouse.tenant_id == user.tenant_id).all()
 
-@app.post("/api/warehouses")
+@app.post("/api/v1/warehouses")
 def create_warehouse(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     wh = Warehouse(**data, tenant_id=user.tenant_id)
     db.add(wh); db.commit(); db.refresh(wh); return wh
 
-@app.put("/api/warehouses/{wh_id}")
+@app.put("/api/v1/warehouses/{wh_id}")
 def update_warehouse(wh_id: str, data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     wh = db.query(Warehouse).filter_by(id=wh_id, tenant_id=user.tenant_id).first()
     if not wh: raise HTTPException(404)
     for k, v in data.items(): setattr(wh, k, v)
     db.commit(); return wh
 
-@app.delete("/api/warehouses/{wh_id}")
+@app.delete("/api/v1/warehouses/{wh_id}")
 def delete_warehouse(wh_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     wh = db.query(Warehouse).filter_by(id=wh_id, tenant_id=user.tenant_id).first()
     if not wh: raise HTTPException(404)
     db.delete(wh); db.commit(); return {"status": "ok"}
 
-@app.post("/api/accounting/payments")
+@app.post("/api/v1/accounting/payments")
 def create_payment(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     inv_ref = data.get("invoice_ref")
     p = PaymentEntry(
@@ -1482,7 +1495,7 @@ def setup_default_accounts(db: Session, tenant_id: int):
             db.add(Account(code=acc['code'], name=acc['name'], type=acc['type'], tenant_id=tenant_id))
     db.commit()
 
-@app.get("/api/accounting/accounts")
+@app.get("/api/v1/accounting/accounts")
 def get_accounts(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     accs = db.query(Account).filter(Account.tenant_id == user.tenant_id).all()
     if not accs:
@@ -1500,7 +1513,7 @@ def get_accounts(db: Session = Depends(get_db), user: User = Depends(get_current
             
     return [{"code": a.code, "name": a.name, "type": a.type, "balance": f"₹{a.balance:,.2f}"} for a in accs]
 
-@app.get("/api/accounting/ledger")
+@app.get("/api/v1/accounting/ledger")
 def get_general_ledger(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     entries = db.query(LedgerEntry, Account.name.label('account_name')).join(Account, LedgerEntry.account == Account.code).filter(LedgerEntry.tenant_id == user.tenant_id).order_by(LedgerEntry.date.desc()).all()
     
@@ -1515,7 +1528,7 @@ def get_general_ledger(db: Session = Depends(get_db), user: User = Depends(get_c
         } for e in entries
     ]
 
-@app.post("/api/accounting/journal")
+@app.post("/api/v1/accounting/journal")
 def create_journal_entry(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     entries = data.get("entries", [])
     total_debit = sum(float(e.get("debit", 0)) for e in entries)
@@ -1534,7 +1547,7 @@ def create_journal_entry(data: dict, db: Session = Depends(get_db), user: User =
     db.commit()
     return {"status": "success", "message": "Journal Entry posted"}
 
-@app.get("/api/accounting/summary")
+@app.get("/api/v1/accounting/summary")
 def get_accounting_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     sales = db.query(func.sum(LedgerEntry.credit)).filter(LedgerEntry.account == "4100", LedgerEntry.tenant_id == user.tenant_id).scalar() or 0
     expenses = db.query(func.sum(LedgerEntry.debit)).filter(LedgerEntry.account.in_(["5100", "5200"]), LedgerEntry.tenant_id == user.tenant_id).scalar() or 0
@@ -1549,7 +1562,7 @@ def get_accounting_summary(db: Session = Depends(get_db), user: User = Depends(g
 
 # ─── ENGINE ENDPOINTS (ERPNext Logic Ported) ──────────────────────────────────
 
-@app.post("/api/engine/calculate_taxes")
+@app.post("/api/v1/engine/calculate_taxes")
 def engine_calculate_taxes(data: dict, user: User = Depends(get_current_user_token)):
     """
     Ported from ERPNext: taxes_and_totals.py (calculate_taxes_and_totals)
@@ -1574,7 +1587,7 @@ def engine_calculate_taxes(data: dict, user: User = Depends(get_current_user_tok
     return calc.to_dict()
 
 
-@app.get("/api/engine/stock_balance/{item_code}")
+@app.get("/api/v1/engine/stock_balance/{item_code}")
 def engine_stock_balance(item_code: str, warehouse: str | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     """
     Ported from ERPNext: stock/utils.py → get_stock_balance()
@@ -1586,7 +1599,7 @@ def engine_stock_balance(item_code: str, warehouse: str | None = None, db: Sessi
     return {"item_code": item_code, "warehouse": warehouse, "balance": balance, "needs_reorder": needs_reorder}
 
 
-@app.post("/api/engine/validate_ledger")
+@app.post("/api/v1/engine/validate_ledger")
 def engine_validate_ledger(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
     """
     Ported from ERPNext: general_ledger.py → process_debit_credit_difference()
@@ -1611,7 +1624,7 @@ def engine_validate_ledger(data: dict, db: Session = Depends(get_db), user: User
     }
 
 # --- NATIVE SUMA LOGIC ENDPOINTS ---
-@app.post("/api/engine/calculate_tax", tags=["SUMA Native Engine"])
+@app.post("/api/v1/engine/calculate_tax", tags=["SUMA Native Engine"])
 def calculate_tax_native(payload: dict, user: User = Depends(get_current_user_token)):
     """
     SUMA Native Engine: Fully translated from ERPNext logic.

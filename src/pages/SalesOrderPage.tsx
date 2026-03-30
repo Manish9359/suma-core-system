@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 
 export default function SalesOrderPage() {
   const [modalOpen, setModalOpen] = useState(false);
-  const { data: orders, isLoading, error, refetch } = useApiQuery(["sales", "orders"], () => api.get<any[]>("/api/sales/orders"));
+  const { data: orders, isLoading, error, refetch } = useApiQuery(["sales", "orders"], () => salesApi.getOrders());
 
   const fields: RecordField[] = [
     { name: "customer", label: "Customer", type: "text", required: true },
@@ -78,7 +78,7 @@ export default function SalesOrderPage() {
         title="Create Sales Order"
         fields={fields}
         onSubmit={async (data) => {
-          await api.post("/api/sales/orders", data);
+          await salesApi.createOrder(data);
           refetch();
         }}
       />

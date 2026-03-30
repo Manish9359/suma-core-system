@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Plus, Search, Hammer, Settings, ClipboardList } from "lucide-react";
-import { api, inventoryApi } from "@/lib/api";
+import { api, inventoryApi, docApi } from "@/lib/api";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { LoadingState, ErrorState, EmptyState } from "@/components/LoadingState";
 import { RecordModal, RecordField } from "@/components/RecordModal";
@@ -15,7 +15,7 @@ export default function ManufacturingPage() {
   const [produceModalOpen, setProduceModalOpen] = useState(false);
   const [selectedBom, setSelectedBom] = useState<string | null>(null);
   
-  const { data: boms, isLoading, error, refetch } = useApiQuery(["manufacturing", "bom"], () => api.get<any[]>("/api/manufacturing/bom"));
+  const { data: boms, isLoading, error, refetch } = useApiQuery(["manufacturing", "bom"], () => docApi.list<any>("BOM"));
   const { data: products } = useApiQuery(["inventory", "products"], inventoryApi.getProducts);
 
   const productOptions = products?.map((p: any) => ({ label: `${p.name} (₹${p.cost})`, value: p.sku })) || [];
@@ -107,7 +107,7 @@ export default function ManufacturingPage() {
         title="Create New Bill of Materials"
         fields={bomFields}
         onSubmit={async (data) => {
-          await api.post("/api/manufacturing/bom", data);
+          await api.post("/api/v1/manufacturing/bom", data);
           refetch();
         }}
       />
@@ -118,7 +118,7 @@ export default function ManufacturingPage() {
         title="Execute Work Order"
         fields={produceFields}
         onSubmit={async (data) => {
-          await api.post("/api/manufacturing/produce", { bom_id: selectedBom, qty: data.qty });
+          await api.post("/api/v1/manufacturing/produce", { bom_id: selectedBom, qty: data.qty });
           refetch();
         }}
       />

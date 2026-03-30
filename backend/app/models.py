@@ -150,7 +150,9 @@ class Account(Base):
     __tablename__ = "accounts"
     code = Column(String, primary_key=True)
     name = Column(String)
-    type = Column(String)
+    type = Column(String) # Asset, Liability, Equity, Income, Expense
+    parent_id = Column(String, ForeignKey("accounts.code"), nullable=True) # For hierarchy
+    is_group = Column(Boolean, default=False) # Group accounts sum up their children
     balance = Column(Float, default=0.0)
     tenant_id = Column(Integer, ForeignKey("tenants.id"))
 
@@ -162,6 +164,8 @@ class LedgerEntry(Base):
     debit = Column(Float, default=0.0)
     credit = Column(Float, default=0.0)
     description = Column(String)
+    voucher_type = Column(String) 
+    voucher_no = Column(String)
     tenant_id = Column(Integer, ForeignKey("tenants.id"))
 
 # --- PROCUREMENT ---
@@ -280,7 +284,19 @@ class StockLedger(Base):
     qty = Column(Float) # positive for inward, negative for outward
     voucher_type = Column(String) # Invoice, Purchase Receipt, Stock Entry
     voucher_no = Column(String)
+    valuation_rate = Column(Float, default=0.0)
     date = Column(DateTime, default=datetime.utcnow)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class Bin(Base):
+    __tablename__ = "bins"
+    id = Column(Integer, primary_key=True)
+    item_code = Column(String, ForeignKey("products.sku"))
+    warehouse = Column(String, ForeignKey("warehouses.id"))
+    actual_qty = Column(Float, default=0.0)    # physical stock
+    reserved_qty = Column(Float, default=0.0)  # from SO, not yet delivered
+    projected_qty = Column(Float, default=0.0) # (Actual + Inward) - Outward
+    valuation_rate = Column(Float, default=0.0)
     tenant_id = Column(Integer, ForeignKey("tenants.id"))
 
 class StockEntry(Base):
@@ -443,4 +459,15 @@ class Asset(Base):
     gross_purchase_amount = Column(Float)
     warehouse = Column(String, ForeignKey("warehouses.id"))
     status = Column(String, default="Scrapped")
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    id = Column(Integer, primary_key=True)
+    doctype = Column(String)
+    docname = Column(String)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    action = Column(String) # Created, Updated, Deleted, Submitted, Cancelled
+    changes = Column(JSON) # {"field": [old_val, new_val]}
+    timestamp = Column(DateTime, default=datetime.utcnow)
     tenant_id = Column(Integer, ForeignKey("tenants.id"))

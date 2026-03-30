@@ -42,7 +42,11 @@ function DynamicTableInput({ field, value = [], onChange }: { field: RecordField
 
   const addRow = () => {
     const newRow: any = {};
-    field.columns?.forEach(c => newRow[c.name] = c.type === "number" ? 0 : "");
+    field?.columns?.forEach(c => {
+      if (c && c.name) {
+        newRow[c.name] = c.type === "number" ? 0 : "";
+      }
+    });
     const updated = [...rows, newRow];
     setRows(updated);
     onChange(updated);
@@ -66,12 +70,12 @@ function DynamicTableInput({ field, value = [], onChange }: { field: RecordField
       <table className="w-full text-sm">
         <thead className="bg-muted text-muted-foreground">
           <tr>
-            {field.columns?.map(c => <th key={c.name} className="px-2 py-1 text-left font-medium">{c.label}</th>)}
+            {(Array.isArray(field?.columns) ? field.columns : []).filter(Boolean).map(c => <th key={c.name} className="px-2 py-1 text-left font-medium">{c?.label || c?.name}</th>)}
             <th className="w-8"></th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, idx) => (
+          {(Array.isArray(rows) ? rows : []).map((row, idx) => (
             <tr key={idx} className="border-t">
               {field.columns?.map(c => (
                 <td key={c.name} className="p-1">
@@ -92,11 +96,12 @@ function DynamicTableInput({ field, value = [], onChange }: { field: RecordField
                     }}>
                       <SelectTrigger className="h-8 text-xs px-2"><SelectValue placeholder="Select..."/></SelectTrigger>
                       <SelectContent>
-                        {c.options?.map((opt: any) => {
-                          const val = typeof opt === "string" ? opt : opt.value;
-                          const lbl = typeof opt === "string" ? opt : opt.label;
-                          const dis = typeof opt === "object" ? !!opt.disabled : false;
-                          return <SelectItem key={val} value={val} disabled={dis} className={dis ? "text-red-500/50" : ""}>{lbl}</SelectItem>
+                        {(Array.isArray(c?.options) ? c.options : []).filter(Boolean).map((opt: any) => {
+                          const val = typeof opt === "string" ? opt : opt?.value;
+                          const lbl = typeof opt === "string" ? opt : opt?.label;
+                          const dis = typeof opt === "object" ? !!opt?.disabled : false;
+                          if (val === undefined || val === null) return null;
+                          return <SelectItem key={String(val)} value={String(val)} disabled={dis} className={dis ? "text-red-500/50" : ""}>{String(lbl || val)}</SelectItem>
                         })}
                       </SelectContent>
                     </Select>
@@ -132,7 +137,8 @@ function DynamicTableInput({ field, value = [], onChange }: { field: RecordField
 }
 
 export function RecordModal({ open, onOpenChange, title, description, fields, onSubmit, initialData = {}, onChangeData }: RecordModalProps) {
-  const [formData, setFormData] = useState<any>(initialData);
+  const ObjectInitialData = initialData || {};
+  const [formData, setFormData] = useState<any>(ObjectInitialData);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -143,6 +149,7 @@ export function RecordModal({ open, onOpenChange, title, description, fields, on
   }, [open, JSON.stringify(initialData)]);
 
   const handleChange = (name: string, value: any) => {
+    if (!name) return;
     let updated = { ...formData, [name]: value };
     if (onChangeData) updated = onChangeData(updated) || updated;
     setFormData(updated);
@@ -171,10 +178,10 @@ export function RecordModal({ open, onOpenChange, title, description, fields, on
           {description && <DialogDescription>{description}</DialogDescription>}
         </DialogHeader>
         <form onSubmit={handleSave} className="space-y-4 py-4">
-          {fields.map((field) => (
+          {(Array.isArray(fields) ? fields : []).filter(Boolean).map((field) => (
             <div key={field.name} className="flex flex-col gap-2">
               <Label htmlFor={field.name} className={field.required ? "after:content-['*'] after:ml-0.5 after:text-red-500" : ""}>
-                {field.label}
+                {field.label || field.name}
               </Label>
               {field.type === "select" ? (
                 <Select
@@ -186,11 +193,12 @@ export function RecordModal({ open, onOpenChange, title, description, fields, on
                     <SelectValue placeholder={`Select ${field.label}`} />
                   </SelectTrigger>
                   <SelectContent>
-                    {field.options?.map((opt: any) => {
-                       const val = typeof opt === "string" ? opt : opt.value;
-                       const lbl = typeof opt === "string" ? opt : opt.label;
-                       const dis = typeof opt === "object" ? !!opt.disabled : false;
-                       return <SelectItem key={val} value={val} disabled={dis} className={dis ? "text-red-500/50" : ""}>{lbl}</SelectItem>
+                    {(Array.isArray(field?.options) ? field.options : []).filter(Boolean).map((opt: any) => {
+                       const val = typeof opt === "string" ? opt : opt?.value;
+                       const lbl = typeof opt === "string" ? opt : opt?.label;
+                       const dis = typeof opt === "object" ? !!opt?.disabled : false;
+                       if (val === undefined || val === null) return null;
+                       return <SelectItem key={String(val)} value={String(val)} disabled={dis} className={dis ? "text-red-500/50" : ""}>{String(lbl || val)}</SelectItem>
                     })}
                   </SelectContent>
                 </Select>
