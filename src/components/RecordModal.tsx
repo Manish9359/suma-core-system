@@ -6,9 +6,10 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, History, LayoutGrid, Clock, User as UserIcon, ShieldCheck } from "lucide-react";
-import { api } from "@/lib/api";
+import { Loader2, Plus, Trash2, History, LayoutGrid, Clock, ShieldCheck, Link2, ArrowRight, AlertTriangle, CheckCircle2, XCircle, RotateCcw } from "lucide-react";
+import { api, docApi } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
+import { getAvailableActions, getStatusColor, DOCUMENT_CHAINS, CALC_RULES, type DocStatus } from "@/lib/docEngine";
 
 export interface RecordField {
   name: string;
@@ -18,10 +19,11 @@ export interface RecordField {
   disabled?: boolean;
   options?: any;
   columns?: RecordField[];
-  fetch_from?: string; // Example: "customer.customer_name"
+  fetch_from?: string;
 }
 
-function DynamicTableInput({ field, value = [], onChange }: { field: RecordField, value: any[], onChange: (v: any[]) => void }) {
+// ─── Inline Table Editor ───
+function DynamicTableInput({ field, value = [], onChange, isSubmitted }: { field: RecordField; value: any[]; onChange: (v: any[]) => void; isSubmitted?: boolean }) {
   const [rows, setRows] = useState<any[]>(Array.isArray(value) ? value : []);
 
   useEffect(() => {
@@ -30,8 +32,8 @@ function DynamicTableInput({ field, value = [], onChange }: { field: RecordField
 
   const addRow = () => {
     const newRow: any = {};
-    field.columns?.forEach(c => {
-      newRow[c.name] = c.type === "number" ? 0 : "";
+    field.columns?.forEach((c) => {
+      newRow[c.name] = c.type === "number" || c.type === "float" ? 0 : "";
     });
     const updated = [...rows, newRow];
     setRows(updated);
@@ -52,69 +54,112 @@ function DynamicTableInput({ field, value = [], onChange }: { field: RecordField
   };
 
   return (
-    <div className="border rounded-md overflow-hidden bg-white mt-1">
+    <div className="border rounded-lg overflow-hidden bg-card mt-1 shadow-sm">
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
-          <thead className="bg-slate-50 border-b">
+          <thead className="bg-muted/50 border-b">
             <tr>
-              {field.columns?.map(c => (
-                <th key={c.name} className="px-3 py-2 text-left font-bold text-slate-500 uppercase tracking-wider">{c.label || c.name}</th>
+              <th className="px-2 py-2 text-left font-bold text-muted-foreground uppercase tracking-wider w-8">#</th>
+              {field.columns?.map((c) => (
+                <th key={c.name} className="px-3 py-2 text-left font-bold text-muted-foreground uppercase tracking-wider">
+                  {c.label || c.name}
+                </th>
               ))}
-              <th className="w-10"></th>
+              {!isSubmitted && <th className="w-10"></th>}
             </tr>
           </thead>
           <tbody>
             {rows.map((row, idx) => (
-              <tr key={idx} className="border-b last:border-0 hover:bg-slate-50/50">
-                {field.columns?.map(c => (
-                  <td key={c.name} className="p-2">
+              <tr key={idx} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                <td className="px-2 py-2 text-muted-foreground font-mono">{idx + 1}</td>
+                {field.columns?.map((c) => (
+                  <td key={c.name} className="p-1.5">
                     {c.type === "select" || c.type === "link" ? (
-                      <Select 
-                        value={row[c.name] !== undefined ? String(row[c.name]) : ""} 
+                      <Select
+                        value={row[c.name] !== undefined ? String(row[c.name]) : ""}
                         onValueChange={(val) => updateRow(idx, c.name, val)}
+                        disabled={isSubmitted || c.disabled}
                       >
-                        <SelectTrigger className="h-8 text-[11px] bg-white"><SelectValue placeholder="Select..."/></SelectTrigger>
+                        <SelectTrigger className="h-8 text-[11px] bg-card">
+                          <SelectValue placeholder="Select..." />
+                        </SelectTrigger>
                         <SelectContent>
-                          {Array.isArray(c.options) ? c.options.map((opt: any, oidx: number) => {
-                            const val = typeof opt === "string" ? opt : opt.value;
-                            const lbl = typeof opt === "string" ? opt : opt.label;
-                            return <SelectItem key={oidx} value={String(val)}>{String(lbl)}</SelectItem>
-                          }) : <SelectItem value="_" disabled>No options</SelectItem>}
+                          {Array.isArray(c.options) ? (
+                            c.options.map((opt: any, oidx: number) => {
+                              const val = typeof opt === "string" ? opt : opt.value;
+                              const lbl = typeof opt === "string" ? opt : opt.label;
+                              return (
+                                <SelectItem key={oidx} value={String(val)}>
+                                  {String(lbl)}
+                                </SelectItem>
+                              );
+                            })
+                          ) : (
+                            <SelectItem value="_" disabled>No options</SelectItem>
+                          )}
                         </SelectContent>
                       </Select>
                     ) : (
-                      <Input 
-                        className="h-8 text-[11px] bg-white" 
-                        type={c.type === "number" ? "number" : "text"} 
-                        value={row[c.name] !== undefined ? String(row[c.name]) : ""} 
-                        onChange={(e) => updateRow(idx, c.name, c.type === "number" ? Number(e.target.value) : e.target.value)} 
-                        disabled={c.disabled}
+                      <Input
+                        className="h-8 text-[11px] bg-card"
+                        type={c.type === "number" || c.type === "float" ? "number" : "text"}
+                        value={row[c.name] !== undefined ? String(row[c.name]) : ""}
+                        onChange={(e) => updateRow(idx, c.name, c.type === "number" || c.type === "float" ? Number(e.target.value) : e.target.value)}
+                        disabled={isSubmitted || c.disabled}
                       />
                     )}
                   </td>
                 ))}
-                <td className="p-1 text-center">
-                  <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400" onClick={() => removeRow(idx)}>
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </td>
+                {!isSubmitted && (
+                  <td className="p-1 text-center">
+                    <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => removeRow(idx)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <Button type="button" variant="ghost" size="sm" className="w-full h-8 text-[11px] border-t rounded-none" onClick={addRow}>
-        <Plus className="h-3 w-3 mr-1"/> Add Row
-      </Button>
+      {!isSubmitted && (
+        <Button type="button" variant="ghost" size="sm" className="w-full h-8 text-[11px] border-t rounded-none text-primary" onClick={addRow}>
+          <Plus className="h-3 w-3 mr-1" /> Add Row
+        </Button>
+      )}
     </div>
   );
 }
 
-export function RecordModal({ open, onOpenChange, title, description, fields, onSubmit, initialData = {}, doctype, ...props }: any) {
+// ─── Status Indicator ───
+function StatusIndicator({ status }: { status: DocStatus }) {
+  const icon = status === "Submitted" ? <CheckCircle2 className="h-4 w-4" /> :
+    status === "Cancelled" ? <XCircle className="h-4 w-4" /> :
+    status === "Amended" ? <RotateCcw className="h-4 w-4" /> :
+    <Clock className="h-4 w-4" />;
+
+  return (
+    <Badge variant="outline" className={`${getStatusColor(status)} px-3 py-1.5 text-xs font-semibold gap-1.5`}>
+      {icon} {status}
+    </Badge>
+  );
+}
+
+// ─── Main Modal ───
+export function RecordModal({
+  open, onOpenChange, title, description, fields, onSubmit, initialData = {}, doctype, onChangeData, ...props
+}: any) {
   const [formData, setFormData] = useState<any>({});
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("general");
   const [activity, setActivity] = useState<any[]>([]);
+
+  const currentStatus: DocStatus = formData.workflow_state || formData.status || "Draft";
+  const isSubmitted = currentStatus === "Submitted";
+  const isCancelled = currentStatus === "Cancelled";
+  const isReadonly = isSubmitted;
+  const availableActions = getAvailableActions(currentStatus);
+  const docLinks = DOCUMENT_CHAINS[doctype] || [];
 
   useEffect(() => {
     if (open) {
@@ -122,7 +167,7 @@ export function RecordModal({ open, onOpenChange, title, description, fields, on
       setActiveTab("general");
       if (initialData?.id && doctype) {
         api.get<any[]>(`/api/v1/doc/${doctype}/${initialData.id}/activity`)
-          .then(res => setActivity(Array.isArray(res) ? res : []))
+          .then((res) => setActivity(Array.isArray(res) ? res : []))
           .catch(() => setActivity([]));
       } else {
         setActivity([]);
@@ -146,171 +191,326 @@ export function RecordModal({ open, onOpenChange, title, description, fields, on
   const handleFieldChange = (name: string, value: any) => {
     setFormData((prev: any) => {
       let newData = { ...prev, [name]: value };
-      
-      // 1. Auto-fetch logic: Check if any other fields depend on this change
+
+      // Auto-fetch: resolve linked fields
       fields.forEach((f: RecordField) => {
         if (f.fetch_from && f.fetch_from.startsWith(`${name}.`)) {
           const sourceAttr = f.fetch_from.split(".")[1];
-          // Find the source field to get the selected option's full data
           const sourceField = fields.find((sf: RecordField) => sf.name === name);
           if (sourceField && Array.isArray(sourceField.options)) {
             const selectedOpt = sourceField.options.find((opt: any) => opt.value === value);
-            if (selectedOpt && selectedOpt.full_data) {
-                newData[f.name] = selectedOpt.full_data[sourceAttr] || "";
+            if (selectedOpt?.full_data) {
+              newData[f.name] = selectedOpt.full_data[sourceAttr] || "";
             }
           }
         }
       });
-      
-      // 2. Calculation Logic (from parent)
-      if (typeof props.onChangeData === "function") {
-         newData = props.onChangeData(newData);
+
+      // Auto-calculate using doctype rules
+      const calcFn = CALC_RULES[doctype];
+      if (calcFn) {
+        newData = calcFn(newData);
       }
-      
+      if (typeof onChangeData === "function") {
+        newData = onChangeData(newData);
+      }
+
       return newData;
     });
   };
 
+  const handleWorkflowAction = async (action: string) => {
+    const wa = availableActions.find((a) => a.action === action);
+    if (wa?.confirm && !confirm(wa.confirm)) return;
+    
+    setLoading(true);
+    try {
+      if (action === "submit") {
+        await docApi.submit(doctype, initialData.id);
+        toast.success("Document submitted — ledger entries posted");
+      } else if (action === "cancel") {
+        await docApi.cancel(doctype, initialData.id);
+        toast.success("Document cancelled — entries reversed");
+      } else if (action === "amend") {
+        // Amend creates a copy as Draft
+        const amended = { ...formData, workflow_state: "Draft", status: "Draft", amended_from: initialData.id };
+        delete amended.id;
+        await docApi.create(doctype, amended);
+        toast.success("Amended document created as Draft");
+      }
+      onOpenChange(false);
+    } catch (err: any) {
+      toast.error(err.message || `${action} failed`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDocLink = async (link: any) => {
+    setLoading(true);
+    try {
+      await api.post(`/api/v1/doc/${doctype}/${initialData.id}/convert?target=${encodeURIComponent(link.targetDoctype)}`);
+      toast.success(`${link.targetLabel} created from ${doctype}`);
+      onOpenChange(false);
+    } catch (err: any) {
+      toast.error(err.message || "Conversion failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Auto-generated naming preview
+  const namingPreview = formData.name || formData.id || (initialData?.id ? `#${initialData.id}` : "New");
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[750px] p-0 flex flex-col h-[85vh] overflow-hidden">
-        <DialogHeader className="p-6 border-b shrink-0 bg-white">
-          <DialogTitle className="text-xl font-bold">{title}</DialogTitle>
-          {description && <DialogDescription className="text-xs">{description}</DialogDescription>}
+      <DialogContent className="sm:max-w-[800px] p-0 flex flex-col h-[88vh] overflow-hidden border-none shadow-2xl">
+        {/* Header with Status */}
+        <DialogHeader className="p-5 border-b shrink-0 bg-card">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <DialogTitle className="text-lg font-bold flex items-center gap-3">
+                {title}
+                {initialData?.id && <StatusIndicator status={currentStatus} />}
+              </DialogTitle>
+              <DialogDescription className="text-xs mt-1 flex items-center gap-2">
+                {description}
+                {initialData?.id && (
+                  <span className="font-mono text-[10px] bg-muted px-2 py-0.5 rounded">
+                    {namingPreview}
+                  </span>
+                )}
+              </DialogDescription>
+            </div>
+          </div>
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
-          <div className="px-6 border-b bg-white">
-            <TabsList className="bg-transparent h-12 p-0 gap-6">
-              <TabsTrigger value="general" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent shadow-none px-1 h-full gap-2">
+          <div className="px-5 border-b bg-card">
+            <TabsList className="bg-transparent h-11 p-0 gap-6">
+              <TabsTrigger value="general" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent shadow-none px-1 h-full gap-2 text-sm">
                 <LayoutGrid className="h-4 w-4" /> Details
               </TabsTrigger>
-              <TabsTrigger value="timeline" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent shadow-none px-1 h-full gap-2 text-slate-500">
-                <History className="h-4 w-4" /> Timeline {activity.length > 0 && <span className="bg-slate-100 px-1.5 py-0.5 rounded-full text-[10px]">{activity.length}</span>}
-              </TabsTrigger>
+              {initialData?.id && (
+                <>
+                  <TabsTrigger value="connections" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent shadow-none px-1 h-full gap-2 text-sm text-muted-foreground">
+                    <Link2 className="h-4 w-4" /> Connections
+                  </TabsTrigger>
+                  <TabsTrigger value="timeline" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent shadow-none px-1 h-full gap-2 text-sm text-muted-foreground">
+                    <History className="h-4 w-4" /> Timeline
+                    {activity.length > 0 && (
+                      <span className="bg-muted px-1.5 py-0.5 rounded-full text-[10px]">{activity.length}</span>
+                    )}
+                  </TabsTrigger>
+                </>
+              )}
             </TabsList>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-6 bg-slate-50/30">
+          <div className="flex-1 overflow-y-auto p-5 bg-muted/20">
+            {/* Details Tab */}
             <TabsContent value="general" className="mt-0 outline-none">
-              <form id="record-form" onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {(Array.isArray(fields) ? fields : []).map((field, idx) => {
-                  const isFullWidth = field.type === "table" || fields.length === 1;
-                  return (
-                    <div key={field.name || idx} className={`flex flex-col gap-1.5 ${isFullWidth ? "md:col-span-2" : ""}`}>
-                      <Label htmlFor={field.name} className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
-                        {field.label || field.name}
-                      </Label>
-                      {field.type === "select" ? (
-                        <Select 
-                          value={formData[field.name] !== undefined ? String(formData[field.name]) : ""} 
-                          onValueChange={(val) => handleFieldChange(field.name, val)}
-                          disabled={field.disabled}
-                        >
-                          <SelectTrigger className="bg-white"><SelectValue placeholder="Select..."/></SelectTrigger>
-                          <SelectContent>
-                             {Array.isArray(field.options) ? field.options.map((opt: any, oidx: number) => {
-                               const val = typeof opt === "string" ? opt : opt.value;
-                               const lbl = typeof opt === "string" ? opt : opt.label;
-                               return <SelectItem key={oidx} value={String(val)}>{String(lbl)}</SelectItem>
-                             }) : null}
-                          </SelectContent>
-                        </Select>
-                      ) : field.type === "table" ? (
-                        <DynamicTableInput field={field} value={formData[field.name]} onChange={(v) => handleFieldChange(field.name, v)} />
-                      ) : (
-                        <Input
-                          id={field.name}
-                          type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"}
-                          className="bg-white"
-                          disabled={field.disabled}
-                          value={formData[field.name] !== undefined ? String(formData[field.name]) : ""}
-                          onChange={(e) => handleFieldChange(field.name, field.type === "number" ? Number(e.target.value) : e.target.value)}
-                        />
-                      )}
-                    </div>
-                  );
-                })}
+              {/* Submitted banner */}
+              {isSubmitted && (
+                <div className="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center gap-3 text-sm text-emerald-800">
+                  <ShieldCheck className="h-5 w-5 text-emerald-600 shrink-0" />
+                  <div>
+                    <p className="font-semibold">Document Submitted</p>
+                    <p className="text-xs text-emerald-600">This document is locked. To make changes, cancel and amend.</p>
+                  </div>
+                </div>
+              )}
+              {isCancelled && (
+                <div className="mb-4 p-3 rounded-lg bg-destructive/5 border border-destructive/20 flex items-center gap-3 text-sm text-destructive">
+                  <AlertTriangle className="h-5 w-5 shrink-0" />
+                  <div>
+                    <p className="font-semibold">Document Cancelled</p>
+                    <p className="text-xs">All ledger entries have been reversed. Use "Amend" to create a corrected copy.</p>
+                  </div>
+                </div>
+              )}
+
+              <form id="record-form" onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {(Array.isArray(fields) ? fields : [])
+                  .filter((f: RecordField) => f.name !== "id" && f.name !== "tenant_id")
+                  .map((field: RecordField, idx: number) => {
+                    const isFullWidth = field.type === "table" || fields.length === 1;
+                    const isFieldReadonly = isReadonly || field.disabled;
+                    const isCalcField = ["amount", "tax", "grand_total", "gross_salary", "net_salary", "progress"].includes(field.name);
+
+                    return (
+                      <div key={field.name || idx} className={`flex flex-col gap-1.5 ${isFullWidth ? "md:col-span-2" : ""}`}>
+                        <Label htmlFor={field.name} className="text-[10px] font-black uppercase text-muted-foreground tracking-wider flex items-center gap-1.5">
+                          {field.label || field.name}
+                          {field.required && <span className="text-destructive">*</span>}
+                          {isCalcField && <span className="text-[9px] font-normal normal-case text-primary">(auto)</span>}
+                          {field.fetch_from && <span className="text-[9px] font-normal normal-case text-primary">(auto-fetched)</span>}
+                        </Label>
+
+                        {field.type === "select" || field.type === "link" ? (
+                          <Select
+                            value={formData[field.name] !== undefined ? String(formData[field.name]) : ""}
+                            onValueChange={(val) => handleFieldChange(field.name, val)}
+                            disabled={isFieldReadonly}
+                          >
+                            <SelectTrigger className="bg-card">
+                              <SelectValue placeholder="Select..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {Array.isArray(field.options) ? (
+                                field.options.map((opt: any, oidx: number) => {
+                                  const val = typeof opt === "string" ? opt : opt.value;
+                                  const lbl = typeof opt === "string" ? opt : opt.label;
+                                  return (
+                                    <SelectItem key={oidx} value={String(val)}>
+                                      {String(lbl)}
+                                    </SelectItem>
+                                  );
+                                })
+                              ) : null}
+                            </SelectContent>
+                          </Select>
+                        ) : field.type === "table" ? (
+                          <DynamicTableInput field={field} value={formData[field.name]} onChange={(v) => handleFieldChange(field.name, v)} isSubmitted={isReadonly} />
+                        ) : (
+                          <Input
+                            id={field.name}
+                            type={field.type === "number" || field.type === "float" ? "number" : field.type === "date" ? "date" : "text"}
+                            step={field.type === "float" ? "0.01" : undefined}
+                            className={`bg-card ${isCalcField ? "font-semibold text-primary bg-primary/5 border-primary/20" : ""}`}
+                            disabled={isFieldReadonly || (!!field.fetch_from)}
+                            value={formData[field.name] !== undefined ? String(formData[field.name]) : ""}
+                            onChange={(e) =>
+                              handleFieldChange(
+                                field.name,
+                                field.type === "number" || field.type === "float" ? Number(e.target.value) : e.target.value
+                              )
+                            }
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
               </form>
             </TabsContent>
 
-            <TabsContent value="timeline" className="mt-0 outline-none">
-              <div className="space-y-6 py-2">
-                {activity.length === 0 ? (
-                  <div className="text-center py-10 text-slate-400 italic text-sm">No activity recorded yet.</div>
-                ) : activity.map((log, idx) => (
-                  <div key={idx} className="flex gap-4 relative">
-                    <div className="w-8 h-8 rounded-full bg-white border flex items-center justify-center shrink-0">
-                      <Clock className="h-4 w-4 text-slate-400" />
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between">
-                         <span className="font-bold text-sm">{log.action}</span>
-                         <span className="text-[10px] text-slate-400">{new Date(log.timestamp).toLocaleString()}</span>
+            {/* Connections Tab */}
+            <TabsContent value="connections" className="mt-0 outline-none">
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-foreground">Document Links</h3>
+                {docLinks.length === 0 ? (
+                  <p className="text-sm text-muted-foreground italic py-6 text-center">No document chains configured for {doctype}.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {docLinks.map((link, idx) => (
+                      <div key={idx} className="flex items-center justify-between p-4 rounded-lg border bg-card hover:shadow-sm transition-shadow">
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                            <Link2 className="h-5 w-5 text-primary" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold">{link.targetLabel}</p>
+                            <p className="text-xs text-muted-foreground">{link.doctype} → {link.targetDoctype}</p>
+                          </div>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5"
+                          onClick={() => handleDocLink(link)}
+                          disabled={loading || currentStatus !== "Submitted"}
+                        >
+                          Create <ArrowRight className="h-3.5 w-3.5" />
+                        </Button>
                       </div>
-                      <div className="text-xs text-slate-500 mt-1">
-                        By {log.user_id === 0 ? "System" : `User #${log.user_id}`}
-                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Show linked references */}
+                {(formData.amended_from || formData.sales_order || formData.purchase_order) && (
+                  <div className="mt-6">
+                    <h3 className="text-sm font-semibold text-foreground mb-3">References</h3>
+                    <div className="space-y-2">
+                      {formData.amended_from && (
+                        <div className="flex items-center gap-2 text-sm p-2 bg-muted/50 rounded">
+                          <RotateCcw className="h-4 w-4 text-amber-500" />
+                          Amended from: <span className="font-mono text-xs">{formData.amended_from}</span>
+                        </div>
+                      )}
+                      {formData.sales_order && (
+                        <div className="flex items-center gap-2 text-sm p-2 bg-muted/50 rounded">
+                          <Link2 className="h-4 w-4 text-primary" />
+                          Sales Order: <span className="font-mono text-xs">{formData.sales_order}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
-                ))}
+                )}
+              </div>
+            </TabsContent>
+
+            {/* Timeline Tab */}
+            <TabsContent value="timeline" className="mt-0 outline-none">
+              <div className="space-y-4 py-2">
+                {activity.length === 0 ? (
+                  <div className="text-center py-10 text-muted-foreground italic text-sm">No activity recorded yet.</div>
+                ) : (
+                  activity.map((log, idx) => (
+                    <div key={idx} className="flex gap-4 relative">
+                      <div className="w-8 h-8 rounded-full bg-card border flex items-center justify-center shrink-0">
+                        <Clock className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-sm">{log.action}</span>
+                          <span className="text-[10px] text-muted-foreground">{new Date(log.timestamp).toLocaleString()}</span>
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          By {log.user_id === 0 ? "System" : `User #${log.user_id}`}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </TabsContent>
           </div>
         </Tabs>
 
-        <DialogFooter className="p-4 border-t bg-white shrink-0 flex items-center justify-between">
-          <div className="flex gap-2">
-            {initialData?.id && (
-              <>
-                {formData.status === "Draft" && (
-                  <Button variant="outline" size="sm" onClick={async () => {
-                    setLoading(true);
-                    try {
-                      await api.post(`/api/v1/doc/${doctype}/${initialData.id}/submit`);
-                      toast.success("Document Submitted");
-                      onOpenChange(false);
-                    } catch (e: any) { toast.error(e.detail || "Submission failed"); }
-                    setLoading(false);
-                  }}>Submit</Button>
-                )}
-                
-                {/* Stage Conversions */}
-                {doctype === "Opportunity" && (
-                  <Button variant="outline" size="sm" onClick={async () => {
-                    try {
-                      await api.post(`/api/v1/doc/Opportunity/${initialData.id}/convert?target=Quotation`);
-                      toast.success("Quotation Created");
-                      onOpenChange(false);
-                    } catch (e: any) { toast.error(e.detail || "Conversion failed"); }
-                  }}>Create Quotation</Button>
-                )}
-                {doctype === "Quotation" && (
-                  <Button variant="outline" size="sm" onClick={async () => {
-                    try {
-                      await api.post(`/api/v1/doc/Quotation/${initialData.id}/convert?target=Sales Order`);
-                      toast.success("Sales Order Created");
-                      onOpenChange(false);
-                    } catch (e: any) { toast.error(e.detail || "Conversion failed"); }
-                  }}>Create Order</Button>
-                )}
-              </>
-            )}
-          </div>
-          
-          <div className="flex gap-2">
-            <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={loading}>Cancel</Button>
-            {formData.status !== "Submitted" && (
-              <Button type="submit" form="record-form" disabled={loading || activeTab !== "general"}>
-                {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {initialData?.id ? "Update Document" : "Save Document"}
+        {/* Footer with Workflow Actions */}
+        <DialogFooter className="p-4 border-t bg-card shrink-0">
+          <div className="w-full flex items-center justify-between">
+            {/* Workflow Actions */}
+            <div className="flex gap-2">
+              {initialData?.id && availableActions.map((action) => (
+                <Button
+                  key={action.action}
+                  size="sm"
+                  className={`${action.color} gap-1.5 shadow-sm`}
+                  onClick={() => handleWorkflowAction(action.action)}
+                  disabled={loading}
+                >
+                  {action.action === "submit" && <CheckCircle2 className="h-3.5 w-3.5" />}
+                  {action.action === "cancel" && <XCircle className="h-3.5 w-3.5" />}
+                  {action.action === "amend" && <RotateCcw className="h-3.5 w-3.5" />}
+                  {action.label}
+                </Button>
+              ))}
+            </div>
+
+            {/* Save / Close */}
+            <div className="flex gap-2">
+              <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={loading}>
+                Close
               </Button>
-            )}
-            {formData.status === "Submitted" && (
-              <Badge variant="secondary" className="px-4 py-2 bg-green-50 text-green-700 border-green-200">
-                <ShieldCheck className="h-4 w-4 mr-2" /> Document Submitted
-              </Badge>
-            )}
+              {!isReadonly && !isCancelled && (
+                <Button type="submit" form="record-form" disabled={loading || activeTab !== "general"} className="shadow-sm">
+                  {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {initialData?.id ? "Update" : "Save"}
+                </Button>
+              )}
+            </div>
           </div>
         </DialogFooter>
       </DialogContent>
