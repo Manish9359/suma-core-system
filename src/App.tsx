@@ -22,6 +22,8 @@ import AMCPage from "./pages/AMCPage";
 import InstallationsPage from "./pages/InstallationsPage";
 import ReportsPage from "./pages/ReportsPage";
 import SettingsPage from "./pages/SettingsPage";
+import OpportunitiesPage from "./pages/OpportunitiesPage";
+import QuotationsPage from "./pages/QuotationsPage";
 import LoginPage from "./pages/LoginPage";
 import NotFound from "./pages/NotFound";
 import InvoicePrint from "./pages/InvoicePrint";
@@ -65,6 +67,9 @@ function AppRoutes() {
       <Route path="/print/:type/:id" element={<InvoicePrint />} />
       <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/crm" element={<ProtectedRoute><CRMPage /></ProtectedRoute>} />
+      <Route path="/leads" element={<Navigate to="/crm" replace />} />
+      <Route path="/opportunities" element={<ProtectedRoute><OpportunitiesPage /></ProtectedRoute>} />
+      <Route path="/quotations" element={<ProtectedRoute><QuotationsPage /></ProtectedRoute>} />
       <Route path="/sales" element={<ProtectedRoute><SalesPage /></ProtectedRoute>} />
       <Route path="/sales/orders" element={<ProtectedRoute><SalesOrderPage /></ProtectedRoute>} />
       <Route path="/inventory" element={<ProtectedRoute><InventoryPage /></ProtectedRoute>} />

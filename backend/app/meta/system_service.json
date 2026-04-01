@@ -1,0 +1,59 @@
+{
+  "name": "System Service",
+  "module": "Service",
+  "naming_rule": "Prefix",
+  "naming_prefix": "SVC-",
+  "fields": [
+    {
+      "name": "id",
+      "label": "Ticket ID",
+      "fieldtype": "text",
+      "readonly": true,
+      "hidden": true
+    },
+    {
+      "name": "customer",
+      "label": "Customer",
+      "fieldtype": "link",
+      "options": "Customer",
+      "required": true
+    },
+    {
+      "name": "subject",
+      "label": "Subject",
+      "fieldtype": "text",
+      "required": true
+    },
+    {
+      "name": "description",
+      "label": "Issue Details",
+      "fieldtype": "text"
+    },
+    {
+      "name": "category",
+      "label": "Service Category",
+      "fieldtype": "select",
+      "options": "Breakdown,Preventive,Installation,Retrofitting,Commissioning,Consultancy"
+    },
+    {
+      "name": "urgency",
+      "label": "Severity",
+      "fieldtype": "select",
+      "options": "Critical,High,Normal,Low",
+      "default": "Normal"
+    },
+    {
+      "name": "status",
+      "label": "Status",
+      "fieldtype": "select",
+      "options": "Open,Draft,Work in Progress,Pending Customer,Resolved,Closed",
+      "default": "Open"
+    },
+    {
+      "name": "assigned_to",
+      "label": "Assignee",
+      "fieldtype": "link",
+      "options": "Employee"
+    }
+  ]
+}

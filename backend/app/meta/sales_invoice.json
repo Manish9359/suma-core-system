@@ -2,7 +2,7 @@
   "name": "Sales Invoice",
   "module": "Sales",
   "naming_rule": "Prefix",
-  "naming_prefix": "INV-",
+  "naming_prefix": "SINV-.YYYY.-.#####",
   "workflow_state_field": "workflow_state",
   "states": ["Draft", "Submitted", "Cancelled"],
   "track_changes": true,
@@ -20,6 +20,20 @@
       "fieldtype": "link",
       "options": "Customer",
       "required": true
+    },
+    {
+      "name": "customer_name",
+      "label": "Customer Name",
+      "fieldtype": "text",
+      "fetch_from": "customer.company",
+      "readonly": true
+    },
+    {
+      "name": "customer_address",
+      "label": "Address",
+      "fieldtype": "text",
+      "fetch_from": "customer.address",
+      "readonly": true
     },
     {
       "name": "date",

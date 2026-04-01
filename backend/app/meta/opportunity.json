@@ -1,0 +1,13 @@
+{
+  "name": "Opportunity",
+  "module": "CRM",
+  "fields": [
+    { "name": "id", "label": "ID", "type": "text", "disabled": true },
+    { "name": "customer", "label": "Customer", "type": "select", "options": ["CUST-001", "CUST-002"], "required": true },
+    { "name": "contact", "label": "Contact Person", "type": "text" },
+    { "name": "status", "label": "Status", "type": "select", "options": ["Open", "Quotation Sent", "Won", "Lost"] },
+    { "name": "value", "label": "Expected Value", "type": "number" },
+    { "name": "source", "label": "Source", "type": "select", "options": ["Exhibition", "Cold Call", "Reference", "Website"] },
+    { "name": "expected_closing", "label": "Expected Closing", "type": "date" }
+  ]
+}

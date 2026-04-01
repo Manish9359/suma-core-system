@@ -41,13 +41,16 @@ class Permission(Base):
     __tablename__ = "permissions"
     id = Column(Integer, primary_key=True)
     role_id = Column(Integer, ForeignKey("roles.id"))
-    doctype = Column(String, nullable=False) # e.g., 'Sales Invoice'
+    doctype = Column(String) # e.g. "Sales Invoice"
     can_read = Column(Boolean, default=True)
     can_write = Column(Boolean, default=False)
     can_create = Column(Boolean, default=False)
     can_delete = Column(Boolean, default=False)
     can_submit = Column(Boolean, default=False)
     can_cancel = Column(Boolean, default=False)
+    # Field-level restriction (comma separated json string for simplicity)
+    restricted_fields = Column(String, default="[]") 
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
     role = relationship("Role", back_populates="permissions")
 
 class Notification(Base):
@@ -104,6 +107,18 @@ class Customer(Base):
     address = Column(String)
     gst = Column(String)
     notes = Column(Text)
+    custom_data = Column(JSON, default={})
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class Opportunity(Base):
+    __tablename__ = "opportunities"
+    id = Column(String, primary_key=True) # OPP-2026-0001
+    customer = Column(String)
+    contact = Column(String)
+    status = Column(String, default="Open") # Open, Quotation Sent, Won, Lost
+    value = Column(Float, default=0.0)
+    source = Column(String)
+    expected_closing = Column(String)
     custom_data = Column(JSON, default={})
     tenant_id = Column(Integer, ForeignKey("tenants.id"))
 
@@ -461,6 +476,27 @@ class Asset(Base):
     status = Column(String, default="Scrapped")
     tenant_id = Column(Integer, ForeignKey("tenants.id"))
 
+class AMC(Base):
+    __tablename__ = "amc_contracts"
+    id = Column(String, primary_key=True) # AMC-0001
+    client = Column(String, ForeignKey("customers.id"))
+    equipment = Column(String)
+    start_date = Column(String)
+    end_date = Column(String)
+    visits = Column(Integer, default=4)
+    status = Column(String, default="Active")
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class Installation(Base):
+    __tablename__ = "installations"
+    id = Column(String, primary_key=True) # INS-0001
+    sales_order = Column(String, ForeignKey("sales_orders.id"))
+    customer = Column(String, ForeignKey("customers.id"))
+    installation_date = Column(String)
+    engineer = Column(String, ForeignKey("employees.id"))
+    status = Column(String, default="Pending")
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id = Column(Integer, primary_key=True)
@@ -470,4 +506,60 @@ class AuditLog(Base):
     action = Column(String) # Created, Updated, Deleted, Submitted, Cancelled
     changes = Column(JSON) # {"field": [old_val, new_val]}
     timestamp = Column(DateTime, default=datetime.utcnow)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+
+class GLEntry(Base):
+    __tablename__ = "gl_entries"
+    id = Column(Integer, primary_key=True)
+    account = Column(String, ForeignKey("accounts.code"))
+    posting_date = Column(String)
+    voucher_type = Column(String) # Sales Invoice, Payment Entry
+    voucher_no = Column(String)
+    debit = Column(Float, default=0.0)
+    credit = Column(Float, default=0.0)
+    remarks = Column(Text)
+    is_cancelled = Column(Boolean, default=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class StockLedgerEntry(Base):
+    __tablename__ = "stock_ledger_entries"
+    id = Column(Integer, primary_key=True)
+    item_code = Column(String, ForeignKey("products.sku"))
+    warehouse = Column(String, ForeignKey("warehouses.id"))
+    posting_date = Column(String)
+    voucher_type = Column(String) # Sales Invoice, Purchase Receipt
+    voucher_no = Column(String)
+    qty_change = Column(Float) # Negative for sales, positive for purchase
+    balance_qty = Column(Float) # Running balance
+    valuation_rate = Column(Float)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class Timesheet(Base):
+    __tablename__ = "timesheets"
+    id = Column(String, primary_key=True)
+    employee = Column(String, ForeignKey("employees.id"))
+    start_date = Column(String)
+    end_date = Column(String)
+    total_hours = Column(Float, default=0.0)
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
+
+class TimesheetItem(Base):
+    __tablename__ = "timesheet_items"
+    id = Column(Integer, primary_key=True)
+    parent_id = Column(String, ForeignKey("timesheets.id"))
+    project = Column(String, ForeignKey("projects.id"))
+    task = Column(String)
+    hours = Column(Float)
+    description = Column(String)
+
+class WebPage(Base):
+    __tablename__ = "web_pages"
+    id = Column(String, primary_key=True)
+    title = Column(String)
+    route = Column(String, unique=True)
+    content = Column(String)
+    is_published = Column(String, default="Published")
     tenant_id = Column(Integer, ForeignKey("tenants.id"))

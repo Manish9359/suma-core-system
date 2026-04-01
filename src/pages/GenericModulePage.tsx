@@ -37,62 +37,84 @@ export default function GenericModulePage({
     () => api.get<any[]>(`/api/v1/doc/${doctype}`)
   );
 
-  if (metaLoading || recordsLoading) return <div className="module-page"><LoadingState message={`Loading ${title || doctype}...`} /></div>;
-  if (metaError) return <div className="module-page"><ErrorState message={`Failed to load metadata for ${doctype}`} onRetry={refetchMeta} /></div>;
-
   const rawFields = meta?.fields || [];
   const [fields, setFields] = useState<RecordField[]>([]);
 
   // 3. Resolve Metadata (Links & Tables)
   useEffect(() => {
-    async function resolveMetadata() {
-      const resolved: RecordField[] = await Promise.all(rawFields.map(async (f: any) => {
-        const type = f.fieldtype?.toLowerCase() || f.type?.toLowerCase() || "text";
-        
-        let options = typeof f.options === "string" ? f.options.split(",").map((o: string) => o.trim()) : f.options;
-
-        // Auto-fetch Link Options
-        if (type === "link" && f.options) {
-           try {
-             const resp = await api.get<any[]>(`/api/v1/doc/${f.options}`);
-             options = resp.map(r => ({ label: r.name || r.id, value: r.id }));
-           } catch {
-             options = [];
-           }
-        }
-
-        // Auto-fetch Table Columns
-        let columns: RecordField[] | undefined = undefined;
-        if (type === "table" && f.options) {
-          try {
-            const childMeta = await api.get<any>(`/api/v1/doc/meta/${f.options}`);
-            columns = childMeta.fields.map((cf: any) => ({
-              name: cf.name,
-              label: cf.label || cf.name,
-              type: cf.fieldtype?.toLowerCase() === "int" || cf.fieldtype?.toLowerCase() === "float" ? "number" : cf.fieldtype?.toLowerCase() || "text",
-              required: !!cf.required,
-              disabled: !!cf.readonly || !!cf.disabled,
-              options: typeof cf.options === "string" ? cf.options.split(",").map((o: string) => o.trim()) : cf.options
-            }));
-          } catch {
-            columns = [];
+    const resolveFieldOptions = async (f: any) => {
+      const type = (f.fieldtype?.toLowerCase() || f.type?.toLowerCase() || "text").trim();
+      let options = f.options;
+      
+      if (typeof options === "string" && !options.includes(",")) {
+        try {
+          let targetDocType = (options.startsWith("Link:") ? options.split(":")[1] : options).trim();
+          if (/^[A-Z]/.test(targetDocType) && type !== "table") {
+            const targetDocs = await api.get<any[]>(`/api/v1/doc/${encodeURIComponent(targetDocType)}`);
+            if (Array.isArray(targetDocs)) {
+              options = targetDocs.map(d => ({ 
+                label: d.customer_name || d.name || d.id, 
+                value: d.id, 
+                full_data: d 
+              }));
+            }
           }
+        } catch {
+          options = options ? [options] : [];
+        }
+      } else if (typeof options === "string") {
+        options = options.split(",").map((o: string) => o.trim());
+      }
+      return options;
+    };
+
+    const resolveMetadata = async () => {
+      const currentRawFields = meta?.fields || [];
+      const resolved = await Promise.all(currentRawFields.map(async (f: any) => {
+        const type = (f.fieldtype?.toLowerCase() || f.type?.toLowerCase() || "text").trim();
+        let options = await resolveFieldOptions(f);
+        let columns: any[] = [];
+
+        // 2. Resolve child table columns
+        if (type === "table") {
+          let childFields = Array.isArray(f.columns) ? f.columns : [];
+          if (childFields.length === 0 && typeof f.options === "string") {
+             try {
+                const childMeta = await api.get<any>(`/api/v1/doc/meta/${encodeURIComponent(f.options)}`);
+                childFields = childMeta?.fields || [];
+             } catch (e) { console.error(`Child meta error for ${f.options}`, e); }
+          }
+          
+          columns = await Promise.all(childFields.map(async (cf: any) => ({
+            name: cf.name,
+            label: cf.label || cf.name,
+            type: cf.fieldtype?.toLowerCase() === "int" || cf.fieldtype?.toLowerCase() === "float" ? "number" : (cf.fieldtype?.toLowerCase() || cf.type?.toLowerCase() || "text"),
+            required: !!cf.required,
+            disabled: !!cf.readonly || !!cf.disabled,
+            options: await resolveFieldOptions(cf)
+          })));
         }
 
         return {
           name: f.name,
           label: f.label || f.name,
-          type: type === "int" || type === "float" ? "number" : type,
+          type: type === "int" || type === "float" || type === "number" ? "number" : type,
           required: !!f.required,
           disabled: !!f.readonly || !!f.disabled,
           options,
-          columns
+          columns,
+          fetch_from: f.fetch_from
         };
       }));
       setFields(resolved);
-    }
+    };
+
     if (meta) resolveMetadata();
-  }, [meta]);
+  }, [meta, doctype]);
+
+  if (metaLoading || recordsLoading) return <div className="module-page"><LoadingState message={`Loading ${title || doctype}...`} /></div>;
+  if (metaError) return <div className="module-page"><ErrorState message={`Failed to load metadata for ${doctype}`} onRetry={refetchMeta} /></div>;
+
   
   // Decide which columns to show in the list view (first 4 text/string/email fields)
   const listColumns = fields.filter(f => f.name !== "id" && f.name !== "tenant_id" && f.type !== "table").slice(0, 5);
@@ -202,6 +224,7 @@ export default function GenericModulePage({
         initialData={editingRecord}
         onChangeData={onRecordChange}
         onSubmit={handleSave}
+        doctype={doctype}
       />
 
     </div>

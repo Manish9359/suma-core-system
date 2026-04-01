@@ -1,0 +1,12 @@
+
+{
+  "name": "Web Page",
+  "module": "Website",
+  "fields": [
+    { "name": "id", "label": "ID", "type": "text", "disabled": true },
+    { "name": "title", "label": "Page Title", "type": "text", "required": true },
+    { "name": "route", "label": "Path (e.g., /about)", "type": "text", "required": true },
+    { "name": "content", "label": "Page Content (HTML/Markdown)", "type": "text", "required": true },
+    { "name": "is_published", "label": "Status", "type": "select", "options": ["Draft", "Published"], "default": "Published" }
+  ]
+}

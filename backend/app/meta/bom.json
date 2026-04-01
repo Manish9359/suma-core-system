@@ -1,42 +1,18 @@
+
 {
   "name": "BOM",
   "module": "Manufacturing",
-  "naming_rule": "Prefix",
-  "naming_prefix": "BOM-",
   "fields": [
-    {
-      "name": "id",
-      "label": "BOM ID",
-      "fieldtype": "text",
-      "readonly": true,
-      "hidden": true
-    },
-    {
-      "name": "item_code",
-      "label": "Finished Good",
-      "fieldtype": "link",
-      "options": "Product",
-      "required": true
-    },
-    {
-      "name": "qty",
-      "label": "Base Quantity",
-      "fieldtype": "float",
-      "default": 1.0,
-      "required": true
-    },
-    {
-      "name": "items",
-      "label": "Raw Materials",
-      "fieldtype": "table",
-      "options": "BOM Item",
-      "required": true
-    },
-    {
-      "name": "total_cost",
-      "label": "Estimated Cost (₹)",
-      "fieldtype": "float",
-      "readonly": true
-    }
+    { "name": "id", "label": "BOM ID", "type": "text", "disabled": true },
+    { "name": "item", "label": "Finished Good", "type": "select", "options": "Link:Product", "required": true },
+    { "name": "qty", "label": "Quantity to Produce", "type": "number", "default": 1 },
+    { "name": "is_active", "label": "Active", "type": "select", "options": "true,false", "default": "true" },
+    { "name": "total_cost", "label": "Total Material Cost", "type": "number", "disabled": true },
+    { "name": "items", "label": "Raw Materials", "type": "table", "columns": [
+      { "name": "item_code", "label": "Raw Material", "type": "select", "options": "Link:Product" },
+      { "name": "qty", "label": "Qty", "type": "number" },
+      { "name": "rate", "label": "Rate", "type": "number" },
+      { "name": "amount", "label": "Amount", "type": "number", "disabled": true }
+    ]}
   ]
 }

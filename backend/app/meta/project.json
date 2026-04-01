@@ -1,0 +1,39 @@
+{
+  "name": "Project",
+  "module": "Projects",
+  "naming_rule": "Prefix",
+  "naming_prefix": "PRJ-",
+  "fields": [
+    {
+      "name": "id",
+      "label": "Project ID",
+      "fieldtype": "text",
+      "readonly": true,
+      "hidden": true
+    },
+    {
+      "name": "project_name",
+      "label": "Project Title",
+      "fieldtype": "text",
+      "required": true
+    },
+    {
+      "name": "customer",
+      "label": "Client",
+      "fieldtype": "link",
+      "options": "Customer"
+    },
+    {
+      "name": "status",
+      "label": "Phase",
+      "fieldtype": "select",
+      "options": "Planning,Development,Implementation,Testing,Live,On Hold,Closing",
+      "default": "Planning"
+    },
+    {
+      "name": "expected_end_date",
+      "label": "Estimated Completion",
+      "fieldtype": "date"
+    }
+  ]
+}

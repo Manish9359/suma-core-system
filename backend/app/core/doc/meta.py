@@ -1,16 +1,19 @@
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, AliasChoices, ConfigDict
 
 class DocField(BaseModel):
     """Represents a single field in an ERP document."""
+    model_config = ConfigDict(populate_by_name=True)
+
     name: str
     label: Optional[str] = None
-    fieldtype: str  # Data, Select, Link, Float, Int, Date, Text, Table
-    options: Optional[str] = None  # For Select type or Link type (which DocType it links to)
+    fieldtype: str = Field(validation_alias=AliasChoices("fieldtype", "type")) 
+    options: Optional[Any] = None  # Can be a CSV string or a List[str]
     required: bool = False
     hidden: bool = False
-    readonly: bool = False
+    readonly: bool = Field(default=False, validation_alias=AliasChoices("readonly", "disabled"))
     default: Any = None
+    columns: Optional[List['DocField']] = None # Recursive columns for 'Table' field types
 
 class DocTypeMetadata(BaseModel):
     """Represents the schema and configuration for an ERP document type."""

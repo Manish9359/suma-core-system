@@ -26,41 +26,46 @@ def get_service(db: Session = Depends(get_db), user: User = Depends(get_current_
 def get_doctype_meta(doctype: str, db: Session = Depends(get_db)):
     """Fetch the schema (metadata) for a given DocType. This defines how the frontend should render the form."""
     from app.core.doc.registry import DocRegistry
+    from app.models import CustomField
     
-    # Check if we have explicit metadata
-    meta = DocRegistry.get_metadata(doctype)
-    if meta:
-        return meta.dict()
-        
-    # If no explicit metadata, try to auto-generate a generic schema from the DB Model
-    from app.core.doc.service import DocService
-    service = DocService(db, tenant_id=1) # Temporary dummy tenant for schema reflection
-    model = service._get_model(doctype)
+    # 1. Fetch Formal Metadata
+    raw_meta = DocRegistry.get_metadata(doctype)
+    if not raw_meta:
+         raise HTTPException(404, f"DocType {doctype} not found in registry")
+         
+    res_dict = raw_meta.dict()
     
-    if not model:
-        raise HTTPException(status_code=404, detail=f"No metadata or model found for '{doctype}'")
-        
-    # Auto-generate schema from SQLAlchemy model columns
-    fields = []
-    for col in model.__table__.columns:
-        field_type = "text"
-        if str(col.type) == "INTEGER": field_type = "number"
-        elif "DATE" in str(col.type): field_type = "date"
-        elif "FLOAT" in str(col.type) or "NUMERIC" in str(col.type): field_type = "number"
-        
-        fields.append({
-            "name": col.name,
-            "label": col.name.replace("_", " ").title(),
-            "type": field_type,
-            "required": not col.nullable and col.name != "id",
-            "disabled": col.name in ["id", "tenant_id", "created_at", "updated_at"]
+    # 2. Merge Custom Fields (Multi-tenant)
+    # Note: In a real system, we'd extract tenant_id from user header
+    tenant_id = 1 
+    custom_fields = db.query(CustomField).filter_by(module=doctype, tenant_id=tenant_id).all()
+    for cf in custom_fields:
+        res_dict["fields"].append({
+            "name": cf.fieldname,
+            "label": cf.label,
+            "type": cf.fieldtype.lower(),
+            "required": False,
+            "is_custom": True
         })
         
-    return {
-        "name": doctype,
-        "module": "Core",
-        "fields": fields
-    }
+    return res_dict
+
+@doc_router.post("/meta/custom-field")
+def create_custom_field(data: Dict[str, Any], db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Add a new custom field to a DocType (Admin only)."""
+    from app.models import CustomField
+    if user.role != "Admin": raise HTTPException(403, "Admins only")
+    
+    cf = CustomField(
+        module=data["doctype"],
+        fieldname=data["name"],
+        label=data.get("label", data["name"]),
+        fieldtype=data.get("type", "Data"),
+        tenant_id=user.tenant_id
+    )
+    db.add(cf)
+    db.commit()
+    return {"status": "success", "message": f"Custom field {cf.fieldname} added to {cf.module}"}
 
 @doc_router.get("/{doctype}")
 def list_documents(
@@ -99,6 +104,15 @@ def submit_document(doctype: str, docname: str, service: DocService = Depends(ge
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@doc_router.post("/{doctype}/{docname}/convert")
+def convert_document(doctype: str, docname: str, target: str, service: DocService = Depends(get_service)):
+    """Convert an existing document to a new one (e.g., Opportunity -> Quotation)."""
+    try:
+        new_doc = service.convert_to(doctype, docname, target)
+        return {"status": "success", "doc": new_doc.to_dict()}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @doc_router.put("/{doctype}/{docname}")
 def update_document(doctype: str, docname: str, data: Dict[str, Any], service: DocService = Depends(get_service)):
     """Update an existing document."""
@@ -116,7 +130,15 @@ def delete_document(doctype: str, docname: str, service: DocService = Depends(ge
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+@doc_router.get("/{doctype}/{docname}/activity")
+def get_document_activity(doctype: str, docname: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Fetch the history and audit logs for a specific document."""
+    from app.models import AuditLog
+    logs = db.query(AuditLog).filter_by(
+        doctype=doctype, 
+        docname=docname, 
+        tenant_id=user.tenant_id
+    ).order_by(AuditLog.timestamp.desc()).all()
+    return logs
 
 router.include_router(doc_router)
-
-# Future Hooks will be implemented here (cancel, duplicate, etc.)

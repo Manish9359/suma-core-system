@@ -5,29 +5,24 @@ from sqlalchemy import func
 import uuid
 
 from app.database import engine, Base, get_db
-from app.models import (Tenant, User, Role, Permission, Notification, WorkflowSignature, CustomField, Lead, Customer, Product, Invoice, InvoiceItem, Account, LedgerEntry, Employee, PurchaseOrder, PurchaseOrderItem, WorkflowTask, CompanySettings, Quotation, QuotationItem, Warehouse, StockLedger, StockEntry, StockEntryItem, Supplier, Project, Task, SalesOrder, SalesOrderItem, PurchaseReceipt, PurchaseReceiptItem, BOM, BOMItem, PaymentEntry, MaterialRequest, MaterialRequestItem, Asset, Issue, QualityInspection, Attendance, SalarySlip)
-from app.schemas import LoginReq, TokenRes, CustomerCreate, ProductCreate, InvoiceCreate, EmployeeCreate
-from app.engine import TaxesAndTotals, GeneralLedger, StockEngine, BOMExploder, WorkOrderScheduler, ReorderEngine, DeferredRevenueEngine
+from app.routers import (public)
+from app.api.v1.router import router as api_v1_router
+from app.models import (Tenant, User, Role, Permission, Notification, WorkflowSignature, CustomField, Lead, Customer, Product, Invoice, InvoiceItem, Account, LedgerEntry, Employee, PurchaseOrder, PurchaseOrderItem, WorkflowTask, CompanySettings, Quotation, QuotationItem, Warehouse, StockLedger, StockEntry, StockEntryItem, Supplier, Project, Task, SalesOrder, SalesOrderItem, PurchaseReceipt, PurchaseReceiptItem, BOM, BOMItem, PaymentEntry, MaterialRequest, MaterialRequestItem, Asset, Issue, QualityInspection, Attendance, SalarySlip, WebPage, Timesheet, TimesheetItem, AuditLog)
+from app.schemas import LoginReq, TokenRes, CustomerCreate, ProductCreate, InvoiceCreate, EmployeeCreate, CompanySettingsUpdate
+from app.core.auth.security import hash_password, verify_password, create_access_token as create_token, get_current_user as get_current_user_token, check_permission as has_permission
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from collections import defaultdict
 from datetime import datetime
-from app.core.auth.security import hash_password, verify_password, create_access_token as create_token, get_current_user as get_current_user_token, check_permission as has_permission
-from app.api.v1.router import router as api_v1_router
-from app.schemas import (
-    LoginReq, TokenRes, CustomerCreate, ProductCreate, 
-    InvoiceCreate, EmployeeCreate, CompanySettingsUpdate
-)
-
-# --- NATIVE SUMA LOGIC (Refactored from ERPNext) ---
-# We no longer rely on external 'frappe' or 'erpnext' packages.
-# All business logic is now contained within app/engine.py (SUMA Native Engine).
 
 # Initialize DB tables
 Base.metadata.create_all(bind=engine)
 
-from app.core.doc.init_registry import initialize_registry
-initialize_registry()
+from app.core.doc.init_registry import init_system_registry
+from app.core.doc.init_hooks import init_system_hooks
+init_system_registry()
+init_system_hooks()
+print("✅ System Ready (DocTypes and Hooks initialized).")
 
 app = FastAPI(title="Extensible ERP API")
 
@@ -39,7 +34,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include Modular API v1
+# Include Modular API
+app.include_router(public.router, prefix="/api/v1/public", tags=["Public eCommerce"])
 app.include_router(api_v1_router, prefix="/api/v1")
 
 # ─── AUTHENTICATION ───

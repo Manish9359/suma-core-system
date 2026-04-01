@@ -13,3 +13,10 @@ class Lead(BaseDocument):
     def validate(self):
         if not self.get("name"):
             raise ValueError("Lead name is required.")
+
+class Opportunity(BaseDocument):
+    doctype: str = "Opportunity"
+
+    def validate(self):
+        if not self.get("customer"):
+            raise ValueError("Customer is required for Opportunity.")

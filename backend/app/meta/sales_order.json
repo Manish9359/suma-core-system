@@ -1,0 +1,43 @@
+{
+  "name": "Sales Order",
+  "module": "Sales",
+  "naming_rule": "Prefix",
+  "naming_prefix": "SO-",
+  "workflow_state_field": "status",
+  "states": ["Draft", "Confirmed", "In Progress", "Completed"],
+  "fields": [
+    {
+      "name": "id",
+      "label": "SO ID",
+      "fieldtype": "text",
+      "readonly": true,
+      "hidden": true
+    },
+    {
+      "name": "customer",
+      "label": "Customer",
+      "fieldtype": "link",
+      "options": "Customer",
+      "required": true
+    },
+    {
+      "name": "from_quotation",
+      "label": "Quotation",
+      "fieldtype": "link",
+      "options": "Quotation"
+    },
+    {
+      "name": "date",
+      "label": "SO Date",
+      "fieldtype": "date",
+      "required": true
+    },
+    {
+      "name": "items",
+      "label": "Order Items",
+      "fieldtype": "table",
+      "options": "Sales Order Item",
+      "required": true
+    }
+  ]
+}

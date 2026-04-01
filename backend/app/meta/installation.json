@@ -1,0 +1,47 @@
+{
+  "name": "Installation",
+  "module": "Service",
+  "naming_rule": "Prefix",
+  "naming_prefix": "INS-",
+  "fields": [
+    {
+      "name": "id",
+      "label": "Installation #",
+      "fieldtype": "text",
+      "readonly": true,
+      "hidden": true
+    },
+    {
+      "name": "sales_order",
+      "label": "Source Order",
+      "fieldtype": "link",
+      "options": "Sales Order",
+      "required": true
+    },
+    {
+      "name": "customer",
+      "label": "Customer",
+      "fieldtype": "link",
+      "options": "Customer",
+      "required": true
+    },
+    {
+      "name": "installation_date",
+      "label": "Installation Date",
+      "fieldtype": "date"
+    },
+    {
+      "name": "engineer",
+      "label": "Assigned Engineer",
+      "fieldtype": "link",
+      "options": "Employee"
+    },
+    {
+      "name": "status",
+      "label": "Status",
+      "fieldtype": "select",
+      "options": "Pending,Scheduled,Work in Progress,Testing,Commissioned",
+      "default": "Pending"
+    }
+  ]
+}

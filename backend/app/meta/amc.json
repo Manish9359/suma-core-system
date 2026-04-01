@@ -1,0 +1,52 @@
+{
+  "name": "AMC",
+  "module": "Service",
+  "naming_rule": "Prefix",
+  "naming_prefix": "AMC-",
+  "fields": [
+    {
+      "name": "id",
+      "label": "AMC #",
+      "fieldtype": "text",
+      "readonly": true,
+      "hidden": true
+    },
+    {
+      "name": "client",
+      "label": "Customer",
+      "fieldtype": "link",
+      "options": "Customer",
+      "required": true
+    },
+    {
+      "name": "equipment",
+      "label": "Equipment",
+      "fieldtype": "text"
+    },
+    {
+      "name": "start_date",
+      "label": "Start Date",
+      "fieldtype": "date",
+      "required": true
+    },
+    {
+      "name": "end_date",
+      "label": "End Date",
+      "fieldtype": "date",
+      "required": true
+    },
+    {
+      "name": "visits",
+      "label": "No. of Visits",
+      "fieldtype": "int",
+      "default": 4
+    },
+    {
+      "name": "status",
+      "label": "Status",
+      "fieldtype": "select",
+      "options": "Active,Expired,Due for Renewal",
+      "default": "Active"
+    }
+  ]
+}

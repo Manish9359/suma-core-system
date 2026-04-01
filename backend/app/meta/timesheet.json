@@ -1,0 +1,18 @@
+
+{
+  "name": "Timesheet",
+  "module": "Projects",
+  "fields": [
+    { "name": "id", "label": "ID", "type": "text", "disabled": true },
+    { "name": "employee", "label": "Employee", "type": "select", "options": "Link:Employee", "required": true },
+    { "name": "start_date", "label": "Start Date", "type": "date" },
+    { "name": "end_date", "label": "End Date", "type": "date" },
+    { "name": "total_hours", "label": "Total Hours", "type": "number", "disabled": true },
+    { "name": "items", "label": "Time Logs", "type": "table", "columns": [
+      { "name": "project", "label": "Project", "type": "select", "options": "Link:Project" },
+      { "name": "task", "label": "Task", "type": "text" },
+      { "name": "hours", "label": "Hours", "type": "number" },
+      { "name": "description", "label": "Description", "type": "text" }
+    ]}
+  ]
+}
