@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 export interface RecordField {
   name: string;
   label: string;
-  type: "text" | "number" | "select" | "date" | "table";
+  type: "text" | "number" | "select" | "date" | "table" | "link" | "float";
   required?: boolean;
   disabled?: boolean;
   options?: any;
