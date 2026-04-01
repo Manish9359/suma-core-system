@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, History, LayoutGrid, Clock, ShieldCheck, Link2, ArrowRight, AlertTriangle, CheckCircle2, XCircle, RotateCcw } from "lucide-react";
+import { Loader2, Plus, Trash2, History, LayoutGrid, Clock, ShieldCheck, Link2, ArrowRight, AlertTriangle, CheckCircle2, XCircle, RotateCcw, PackageCheck, Package } from "lucide-react";
 import { api, docApi } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { getAvailableActions, getStatusColor, DOCUMENT_CHAINS, CALC_RULES, type DocStatus } from "@/lib/docEngine";
@@ -22,8 +22,71 @@ export interface RecordField {
   fetch_from?: string;
 }
 
-// ─── Inline Table Editor ───
-function DynamicTableInput({ field, value = [], onChange, isSubmitted }: { field: RecordField; value: any[]; onChange: (v: any[]) => void; isSubmitted?: boolean }) {
+// ─── Stock Balance Cache ───
+const stockCache: Record<string, { qty: number; name: string; loading: boolean }> = {};
+
+async function fetchStockBalance(itemCode: string): Promise<{ qty: number; name: string }> {
+  if (stockCache[itemCode] && !stockCache[itemCode].loading) {
+    return stockCache[itemCode];
+  }
+  try {
+    stockCache[itemCode] = { qty: 0, name: "", loading: true };
+    const data = await api.get<any>(`/api/v1/engine/stock_balance/${encodeURIComponent(itemCode)}`);
+    const result = { qty: data.total_qty || 0, name: data.item_name || itemCode, loading: false };
+    stockCache[itemCode] = result;
+    return result;
+  } catch {
+    stockCache[itemCode] = { qty: 0, name: itemCode, loading: false };
+    return stockCache[itemCode];
+  }
+}
+
+// ─── Stock Indicator Badge ───
+function StockBadge({ itemCode, requiredQty }: { itemCode: string; requiredQty: number }) {
+  const [stock, setStock] = useState<{ qty: number; name: string } | null>(null);
+
+  useEffect(() => {
+    if (itemCode) {
+      fetchStockBalance(itemCode).then(setStock);
+    }
+  }, [itemCode]);
+
+  if (!itemCode || !stock) return null;
+
+  const isLow = stock.qty < requiredQty;
+  const isZero = stock.qty <= 0;
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1 text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${
+        isZero
+          ? "bg-destructive/10 text-destructive"
+          : isLow
+          ? "bg-amber-50 text-amber-700"
+          : "bg-emerald-50 text-emerald-700"
+      }`}
+      title={`Available: ${stock.qty} units`}
+    >
+      {isZero ? <XCircle className="h-2.5 w-2.5" /> : isLow ? <AlertTriangle className="h-2.5 w-2.5" /> : <PackageCheck className="h-2.5 w-2.5" />}
+      {stock.qty} avail
+    </span>
+  );
+}
+
+// ─── Inline Table Editor with Stock Check ───
+function DynamicTableInput({
+  field,
+  value = [],
+  onChange,
+  isSubmitted,
+  showStock,
+}: {
+  field: RecordField;
+  value: any[];
+  onChange: (v: any[]) => void;
+  isSubmitted?: boolean;
+  showStock?: boolean;
+}) {
   const [rows, setRows] = useState<any[]>(Array.isArray(value) ? value : []);
 
   useEffect(() => {
@@ -53,6 +116,10 @@ function DynamicTableInput({ field, value = [], onChange, isSubmitted }: { field
     onChange(updated);
   };
 
+  // Check if any column is an item_code field
+  const itemCodeCol = field.columns?.find((c) => c.name === "item_code");
+  const qtyCol = field.columns?.find((c) => c.name === "qty");
+
   return (
     <div className="border rounded-lg overflow-hidden bg-card mt-1 shadow-sm">
       <div className="overflow-x-auto">
@@ -65,6 +132,9 @@ function DynamicTableInput({ field, value = [], onChange, isSubmitted }: { field
                   {c.label || c.name}
                 </th>
               ))}
+              {showStock && itemCodeCol && (
+                <th className="px-2 py-2 text-left font-bold text-muted-foreground uppercase tracking-wider">Stock</th>
+              )}
               {!isSubmitted && <th className="w-10"></th>}
             </tr>
           </thead>
@@ -84,19 +154,17 @@ function DynamicTableInput({ field, value = [], onChange, isSubmitted }: { field
                           <SelectValue placeholder="Select..." />
                         </SelectTrigger>
                         <SelectContent>
-                          {Array.isArray(c.options) ? (
-                            c.options.map((opt: any, oidx: number) => {
-                              const val = typeof opt === "string" ? opt : opt.value;
-                              const lbl = typeof opt === "string" ? opt : opt.label;
-                              return (
-                                <SelectItem key={oidx} value={String(val)}>
-                                  {String(lbl)}
-                                </SelectItem>
-                              );
-                            })
-                          ) : (
-                            <SelectItem value="_" disabled>No options</SelectItem>
-                          )}
+                          {Array.isArray(c.options)
+                            ? c.options.map((opt: any, oidx: number) => {
+                                const val = typeof opt === "string" ? opt : opt.value;
+                                const lbl = typeof opt === "string" ? opt : opt.label;
+                                return (
+                                  <SelectItem key={oidx} value={String(val)}>
+                                    {String(lbl)}
+                                  </SelectItem>
+                                );
+                              })
+                            : <SelectItem value="_" disabled>No options</SelectItem>}
                         </SelectContent>
                       </Select>
                     ) : (
@@ -104,12 +172,19 @@ function DynamicTableInput({ field, value = [], onChange, isSubmitted }: { field
                         className="h-8 text-[11px] bg-card"
                         type={c.type === "number" || c.type === "float" ? "number" : "text"}
                         value={row[c.name] !== undefined ? String(row[c.name]) : ""}
-                        onChange={(e) => updateRow(idx, c.name, c.type === "number" || c.type === "float" ? Number(e.target.value) : e.target.value)}
+                        onChange={(e) =>
+                          updateRow(idx, c.name, c.type === "number" || c.type === "float" ? Number(e.target.value) : e.target.value)
+                        }
                         disabled={isSubmitted || c.disabled}
                       />
                     )}
                   </td>
                 ))}
+                {showStock && itemCodeCol && (
+                  <td className="p-1.5">
+                    <StockBadge itemCode={row.item_code} requiredQty={Number(row.qty || 0)} />
+                  </td>
+                )}
                 {!isSubmitted && (
                   <td className="p-1 text-center">
                     <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-destructive" onClick={() => removeRow(idx)}>
@@ -133,7 +208,8 @@ function DynamicTableInput({ field, value = [], onChange, isSubmitted }: { field
 
 // ─── Status Indicator ───
 function StatusIndicator({ status }: { status: DocStatus }) {
-  const icon = status === "Submitted" ? <CheckCircle2 className="h-4 w-4" /> :
+  const icon =
+    status === "Submitted" ? <CheckCircle2 className="h-4 w-4" /> :
     status === "Cancelled" ? <XCircle className="h-4 w-4" /> :
     status === "Amended" ? <RotateCcw className="h-4 w-4" /> :
     <Clock className="h-4 w-4" />;
@@ -147,7 +223,7 @@ function StatusIndicator({ status }: { status: DocStatus }) {
 
 // ─── Main Modal ───
 export function RecordModal({
-  open, onOpenChange, title, description, fields, onSubmit, initialData = {}, doctype, onChangeData, ...props
+  open, onOpenChange, title, description, fields, onSubmit, initialData = {}, doctype, onChangeData,
 }: any) {
   const [formData, setFormData] = useState<any>({});
   const [loading, setLoading] = useState(false);
@@ -160,6 +236,9 @@ export function RecordModal({
   const isReadonly = isSubmitted;
   const availableActions = getAvailableActions(currentStatus);
   const docLinks = DOCUMENT_CHAINS[doctype] || [];
+
+  // Should we show stock balance? Only for Sales Invoice, Delivery Note, Quotation, Sales Order
+  const showStock = ["Sales Invoice", "Quotation", "Sales Order", "Delivery Note"].includes(doctype);
 
   useEffect(() => {
     if (open) {
@@ -177,6 +256,26 @@ export function RecordModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Stock validation before save for invoice-type docs
+    if (showStock && formData.items) {
+      for (const item of formData.items) {
+        if (item.item_code && item.qty) {
+          try {
+            const stock = await fetchStockBalance(item.item_code);
+            if (stock.qty < Number(item.qty)) {
+              const proceed = confirm(
+                `⚠️ Insufficient stock for ${stock.name || item.item_code}!\n\nRequired: ${item.qty}\nAvailable: ${stock.qty}\n\nDo you want to continue anyway?`
+              );
+              if (!proceed) return;
+            }
+          } catch {
+            // If stock check fails, continue with save
+          }
+        }
+      }
+    }
+
     setLoading(true);
     try {
       await onSubmit(formData);
@@ -188,11 +287,11 @@ export function RecordModal({
     }
   };
 
-  const handleFieldChange = (name: string, value: any) => {
+  const handleFieldChange = useCallback((name: string, value: any) => {
     setFormData((prev: any) => {
       let newData = { ...prev, [name]: value };
 
-      // Auto-fetch: resolve linked fields
+      // Auto-fetch
       fields.forEach((f: RecordField) => {
         if (f.fetch_from && f.fetch_from.startsWith(`${name}.`)) {
           const sourceAttr = f.fetch_from.split(".")[1];
@@ -206,7 +305,7 @@ export function RecordModal({
         }
       });
 
-      // Auto-calculate using doctype rules
+      // Auto-calculate
       const calcFn = CALC_RULES[doctype];
       if (calcFn) {
         newData = calcFn(newData);
@@ -217,12 +316,12 @@ export function RecordModal({
 
       return newData;
     });
-  };
+  }, [fields, doctype, onChangeData]);
 
   const handleWorkflowAction = async (action: string) => {
     const wa = availableActions.find((a) => a.action === action);
     if (wa?.confirm && !confirm(wa.confirm)) return;
-    
+
     setLoading(true);
     try {
       if (action === "submit") {
@@ -232,7 +331,6 @@ export function RecordModal({
         await docApi.cancel(doctype, initialData.id);
         toast.success("Document cancelled — entries reversed");
       } else if (action === "amend") {
-        // Amend creates a copy as Draft
         const amended = { ...formData, workflow_state: "Draft", status: "Draft", amended_from: initialData.id };
         delete amended.id;
         await docApi.create(doctype, amended);
@@ -250,7 +348,7 @@ export function RecordModal({
     setLoading(true);
     try {
       await api.post(`/api/v1/doc/${doctype}/${initialData.id}/convert?target=${encodeURIComponent(link.targetDoctype)}`);
-      toast.success(`${link.targetLabel} created from ${doctype}`);
+      toast.success(`${link.targetLabel} created`);
       onOpenChange(false);
     } catch (err: any) {
       toast.error(err.message || "Conversion failed");
@@ -259,13 +357,12 @@ export function RecordModal({
     }
   };
 
-  // Auto-generated naming preview
   const namingPreview = formData.name || formData.id || (initialData?.id ? `#${initialData.id}` : "New");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[800px] p-0 flex flex-col h-[88vh] overflow-hidden border-none shadow-2xl">
-        {/* Header with Status */}
+        {/* Header */}
         <DialogHeader className="p-5 border-b shrink-0 bg-card">
           <div className="flex items-center justify-between gap-4">
             <div className="flex-1 min-w-0">
@@ -276,9 +373,7 @@ export function RecordModal({
               <DialogDescription className="text-xs mt-1 flex items-center gap-2">
                 {description}
                 {initialData?.id && (
-                  <span className="font-mono text-[10px] bg-muted px-2 py-0.5 rounded">
-                    {namingPreview}
-                  </span>
+                  <span className="font-mono text-[10px] bg-muted px-2 py-0.5 rounded">{namingPreview}</span>
                 )}
               </DialogDescription>
             </div>
@@ -298,9 +393,7 @@ export function RecordModal({
                   </TabsTrigger>
                   <TabsTrigger value="timeline" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent shadow-none px-1 h-full gap-2 text-sm text-muted-foreground">
                     <History className="h-4 w-4" /> Timeline
-                    {activity.length > 0 && (
-                      <span className="bg-muted px-1.5 py-0.5 rounded-full text-[10px]">{activity.length}</span>
-                    )}
+                    {activity.length > 0 && <span className="bg-muted px-1.5 py-0.5 rounded-full text-[10px]">{activity.length}</span>}
                   </TabsTrigger>
                 </>
               )}
@@ -310,13 +403,12 @@ export function RecordModal({
           <div className="flex-1 overflow-y-auto p-5 bg-muted/20">
             {/* Details Tab */}
             <TabsContent value="general" className="mt-0 outline-none">
-              {/* Submitted banner */}
               {isSubmitted && (
                 <div className="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center gap-3 text-sm text-emerald-800">
                   <ShieldCheck className="h-5 w-5 text-emerald-600 shrink-0" />
                   <div>
                     <p className="font-semibold">Document Submitted</p>
-                    <p className="text-xs text-emerald-600">This document is locked. To make changes, cancel and amend.</p>
+                    <p className="text-xs text-emerald-600">Locked. Cancel and amend to make changes.</p>
                   </div>
                 </div>
               )}
@@ -325,7 +417,7 @@ export function RecordModal({
                   <AlertTriangle className="h-5 w-5 shrink-0" />
                   <div>
                     <p className="font-semibold">Document Cancelled</p>
-                    <p className="text-xs">All ledger entries have been reversed. Use "Amend" to create a corrected copy.</p>
+                    <p className="text-xs">Ledger entries reversed. Use "Amend" to create a corrected copy.</p>
                   </div>
                 </div>
               )}
@@ -336,7 +428,7 @@ export function RecordModal({
                   .map((field: RecordField, idx: number) => {
                     const isFullWidth = field.type === "table" || fields.length === 1;
                     const isFieldReadonly = isReadonly || field.disabled;
-                    const isCalcField = ["amount", "tax", "grand_total", "gross_salary", "net_salary", "progress"].includes(field.name);
+                    const isCalcField = ["amount", "tax", "grand_total", "gross_salary", "net_salary", "progress", "total"].includes(field.name);
 
                     return (
                       <div key={field.name || idx} className={`flex flex-col gap-1.5 ${isFullWidth ? "md:col-span-2" : ""}`}>
@@ -353,38 +445,35 @@ export function RecordModal({
                             onValueChange={(val) => handleFieldChange(field.name, val)}
                             disabled={isFieldReadonly}
                           >
-                            <SelectTrigger className="bg-card">
-                              <SelectValue placeholder="Select..." />
-                            </SelectTrigger>
+                            <SelectTrigger className="bg-card"><SelectValue placeholder="Select..." /></SelectTrigger>
                             <SelectContent>
-                              {Array.isArray(field.options) ? (
-                                field.options.map((opt: any, oidx: number) => {
-                                  const val = typeof opt === "string" ? opt : opt.value;
-                                  const lbl = typeof opt === "string" ? opt : opt.label;
-                                  return (
-                                    <SelectItem key={oidx} value={String(val)}>
-                                      {String(lbl)}
-                                    </SelectItem>
-                                  );
-                                })
-                              ) : null}
+                              {Array.isArray(field.options)
+                                ? field.options.map((opt: any, oidx: number) => {
+                                    const val = typeof opt === "string" ? opt : opt.value;
+                                    const lbl = typeof opt === "string" ? opt : opt.label;
+                                    return <SelectItem key={oidx} value={String(val)}>{String(lbl)}</SelectItem>;
+                                  })
+                                : null}
                             </SelectContent>
                           </Select>
                         ) : field.type === "table" ? (
-                          <DynamicTableInput field={field} value={formData[field.name]} onChange={(v) => handleFieldChange(field.name, v)} isSubmitted={isReadonly} />
+                          <DynamicTableInput
+                            field={field}
+                            value={formData[field.name]}
+                            onChange={(v) => handleFieldChange(field.name, v)}
+                            isSubmitted={isReadonly}
+                            showStock={showStock}
+                          />
                         ) : (
                           <Input
                             id={field.name}
                             type={field.type === "number" || field.type === "float" ? "number" : field.type === "date" ? "date" : "text"}
                             step={field.type === "float" ? "0.01" : undefined}
                             className={`bg-card ${isCalcField ? "font-semibold text-primary bg-primary/5 border-primary/20" : ""}`}
-                            disabled={isFieldReadonly || (!!field.fetch_from)}
+                            disabled={isFieldReadonly || !!field.fetch_from}
                             value={formData[field.name] !== undefined ? String(formData[field.name]) : ""}
                             onChange={(e) =>
-                              handleFieldChange(
-                                field.name,
-                                field.type === "number" || field.type === "float" ? Number(e.target.value) : e.target.value
-                              )
+                              handleFieldChange(field.name, field.type === "number" || field.type === "float" ? Number(e.target.value) : e.target.value)
                             }
                           />
                         )}
@@ -397,12 +486,12 @@ export function RecordModal({
             {/* Connections Tab */}
             <TabsContent value="connections" className="mt-0 outline-none">
               <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-foreground">Document Links</h3>
+                <h3 className="text-sm font-semibold">Document Links</h3>
                 {docLinks.length === 0 ? (
-                  <p className="text-sm text-muted-foreground italic py-6 text-center">No document chains configured for {doctype}.</p>
+                  <p className="text-sm text-muted-foreground italic py-6 text-center">No document chains for {doctype}.</p>
                 ) : (
                   <div className="space-y-3">
-                    {docLinks.map((link, idx) => (
+                    {docLinks.map((link: any, idx: number) => (
                       <div key={idx} className="flex items-center justify-between p-4 rounded-lg border bg-card hover:shadow-sm transition-shadow">
                         <div className="flex items-center gap-3">
                           <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -414,9 +503,7 @@ export function RecordModal({
                           </div>
                         </div>
                         <Button
-                          variant="outline"
-                          size="sm"
-                          className="gap-1.5"
+                          variant="outline" size="sm" className="gap-1.5"
                           onClick={() => handleDocLink(link)}
                           disabled={loading || currentStatus !== "Submitted"}
                         >
@@ -427,21 +514,23 @@ export function RecordModal({
                   </div>
                 )}
 
-                {/* Show linked references */}
                 {(formData.amended_from || formData.sales_order || formData.purchase_order) && (
                   <div className="mt-6">
-                    <h3 className="text-sm font-semibold text-foreground mb-3">References</h3>
+                    <h3 className="text-sm font-semibold mb-3">References</h3>
                     <div className="space-y-2">
                       {formData.amended_from && (
                         <div className="flex items-center gap-2 text-sm p-2 bg-muted/50 rounded">
-                          <RotateCcw className="h-4 w-4 text-amber-500" />
-                          Amended from: <span className="font-mono text-xs">{formData.amended_from}</span>
+                          <RotateCcw className="h-4 w-4 text-amber-500" /> Amended from: <span className="font-mono text-xs">{formData.amended_from}</span>
                         </div>
                       )}
                       {formData.sales_order && (
                         <div className="flex items-center gap-2 text-sm p-2 bg-muted/50 rounded">
-                          <Link2 className="h-4 w-4 text-primary" />
-                          Sales Order: <span className="font-mono text-xs">{formData.sales_order}</span>
+                          <Link2 className="h-4 w-4 text-primary" /> Sales Order: <span className="font-mono text-xs">{formData.sales_order}</span>
+                        </div>
+                      )}
+                      {formData.purchase_order && (
+                        <div className="flex items-center gap-2 text-sm p-2 bg-muted/50 rounded">
+                          <Link2 className="h-4 w-4 text-primary" /> Purchase Order: <span className="font-mono text-xs">{formData.purchase_order}</span>
                         </div>
                       )}
                     </div>
@@ -456,7 +545,7 @@ export function RecordModal({
                 {activity.length === 0 ? (
                   <div className="text-center py-10 text-muted-foreground italic text-sm">No activity recorded yet.</div>
                 ) : (
-                  activity.map((log, idx) => (
+                  activity.map((log: any, idx: number) => (
                     <div key={idx} className="flex gap-4 relative">
                       <div className="w-8 h-8 rounded-full bg-card border flex items-center justify-center shrink-0">
                         <Clock className="h-4 w-4 text-muted-foreground" />
@@ -466,9 +555,7 @@ export function RecordModal({
                           <span className="font-bold text-sm">{log.action}</span>
                           <span className="text-[10px] text-muted-foreground">{new Date(log.timestamp).toLocaleString()}</span>
                         </div>
-                        <div className="text-xs text-muted-foreground mt-1">
-                          By {log.user_id === 0 ? "System" : `User #${log.user_id}`}
-                        </div>
+                        <div className="text-xs text-muted-foreground mt-1">By {log.user_id === 0 ? "System" : `User #${log.user_id}`}</div>
                       </div>
                     </div>
                   ))
@@ -478,32 +565,28 @@ export function RecordModal({
           </div>
         </Tabs>
 
-        {/* Footer with Workflow Actions */}
+        {/* Footer */}
         <DialogFooter className="p-4 border-t bg-card shrink-0">
           <div className="w-full flex items-center justify-between">
-            {/* Workflow Actions */}
             <div className="flex gap-2">
-              {initialData?.id && availableActions.map((action) => (
-                <Button
-                  key={action.action}
-                  size="sm"
-                  className={`${action.color} gap-1.5 shadow-sm`}
-                  onClick={() => handleWorkflowAction(action.action)}
-                  disabled={loading}
-                >
-                  {action.action === "submit" && <CheckCircle2 className="h-3.5 w-3.5" />}
-                  {action.action === "cancel" && <XCircle className="h-3.5 w-3.5" />}
-                  {action.action === "amend" && <RotateCcw className="h-3.5 w-3.5" />}
-                  {action.label}
-                </Button>
-              ))}
+              {initialData?.id &&
+                availableActions.map((action) => (
+                  <Button
+                    key={action.action}
+                    size="sm"
+                    className={`${action.color} gap-1.5 shadow-sm`}
+                    onClick={() => handleWorkflowAction(action.action)}
+                    disabled={loading}
+                  >
+                    {action.action === "submit" && <CheckCircle2 className="h-3.5 w-3.5" />}
+                    {action.action === "cancel" && <XCircle className="h-3.5 w-3.5" />}
+                    {action.action === "amend" && <RotateCcw className="h-3.5 w-3.5" />}
+                    {action.label}
+                  </Button>
+                ))}
             </div>
-
-            {/* Save / Close */}
             <div className="flex gap-2">
-              <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={loading}>
-                Close
-              </Button>
+              <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={loading}>Close</Button>
               {!isReadonly && !isCancelled && (
                 <Button type="submit" form="record-form" disabled={loading || activeTab !== "general"} className="shadow-sm">
                   {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
