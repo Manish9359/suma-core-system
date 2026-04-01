@@ -397,10 +397,11 @@ class SalesOrderItem(Base):
 # --- EXPANDED PROCUREMENT ---
 class PurchaseReceipt(Base):
     __tablename__ = "purchase_receipts"
-    id = Column(String, primary_key=True) # PR-2026-0001
+    id = Column(String, primary_key=True)
     supplier = Column(String, ForeignKey("suppliers.id"))
     date = Column(String)
-    status = Column(String, default="Draft") # Draft, Submitted
+    status = Column(String, default="Draft")
+    workflow_state = Column(String, default="Draft")
     tenant_id = Column(Integer, ForeignKey("tenants.id"))
 
 class PurchaseReceiptItem(Base):
@@ -410,6 +411,21 @@ class PurchaseReceiptItem(Base):
     item_code = Column(String, ForeignKey("products.sku"))
     qty = Column(Float)
     warehouse = Column(String, ForeignKey("warehouses.id"))
+
+class PurchaseInvoiceModel(Base):
+    __tablename__ = "purchase_invoices"
+    id = Column(String, primary_key=True)
+    supplier = Column(String, ForeignKey("suppliers.id"))
+    date = Column(String)
+    amount = Column(Float, default=0.0)
+    tax = Column(Float, default=0.0)
+    gst_rate = Column(Float, default=18.0)
+    grand_total = Column(Float, default=0.0)
+    purchase_order = Column(String, nullable=True)
+    status = Column(String, default="Draft")
+    workflow_state = Column(String, default="Draft")
+    custom_data = Column(JSON, default={})
+    tenant_id = Column(Integer, ForeignKey("tenants.id"))
 
 class MaterialRequest(Base):
     __tablename__ = "material_requests"
