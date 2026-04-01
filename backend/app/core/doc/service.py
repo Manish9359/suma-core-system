@@ -307,9 +307,11 @@ class DocService:
             "Payment Entry": getattr(models, "PaymentEntry", None),
             "Purchase Order": getattr(models, "PurchaseOrder", None),
             "Purchase Receipt": getattr(models, "PurchaseReceipt", None),
+            "Purchase Invoice": getattr(models, "PurchaseInvoiceModel", None),
             "Salary Slip": getattr(models, "SalarySlip", None),
             "Stock Entry": getattr(models, "StockEntry", None),
-            "System Service": getattr(models, "Issue", None)
+            "System Service": getattr(models, "Issue", None),
+            "Sales Order": getattr(models, "SalesOrder", None),
         }
 
         if doctype in mapping and mapping[doctype]:

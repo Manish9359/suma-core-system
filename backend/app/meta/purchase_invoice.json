@@ -1,0 +1,21 @@
+{
+  "name": "Purchase Invoice",
+  "module": "Buying",
+  "naming_rule": "Prefix",
+  "naming_prefix": "PINV-.YYYY.-.#####",
+  "workflow_state_field": "workflow_state",
+  "states": ["Draft", "Submitted", "Cancelled"],
+  "track_changes": true,
+  "fields": [
+    {"name": "id", "label": "Invoice ID", "fieldtype": "text", "readonly": true, "hidden": true},
+    {"name": "supplier", "label": "Supplier", "fieldtype": "link", "options": "Supplier", "required": true},
+    {"name": "date", "label": "Invoice Date", "fieldtype": "date", "required": true},
+    {"name": "items", "label": "Invoice Items", "fieldtype": "table", "options": "Purchase Order Item", "required": true},
+    {"name": "gst_rate", "label": "GST Rate (%)", "fieldtype": "float", "default": 18.0},
+    {"name": "amount", "label": "Subtotal (₹)", "fieldtype": "float", "readonly": true},
+    {"name": "tax", "label": "GST Amount (₹)", "fieldtype": "float", "readonly": true},
+    {"name": "grand_total", "label": "Grand Total (₹)", "fieldtype": "float", "readonly": true},
+    {"name": "purchase_order", "label": "Purchase Order Ref", "fieldtype": "text", "readonly": true},
+    {"name": "workflow_state", "label": "Status", "fieldtype": "select", "options": "Draft,Submitted,Cancelled", "default": "Draft", "readonly": true}
+  ]
+}

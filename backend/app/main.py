@@ -1,75 +1,95 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import engine, Base
+from app.database import engine, Base, SessionLocal
 from app.api.router import api_router
-from app.core.background import BackgroundEngine
 from app.core.doc.init_registry import initialize_registry
 
-# 1. Initialize DB tables
+# 1. Create all tables
 Base.metadata.create_all(bind=engine)
 
-# 2. Initialize the DocRegistry (Business logic mappings)
+# 2. Initialize DocRegistry
 initialize_registry()
 
-app = FastAPI(title="suma-core-system", version="1.0.0")
+app = FastAPI(title="SumaERP Backend", version="2.0.0")
 
-# 3. CORS configuration
+# 3. CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# 4. Global Router Integration (includes /api/v1/auth, /api/v1/doc, /api/v1/reports)
+# 4. Routes
 app.include_router(api_router)
 
-# 5. Background Task Lifecycle
+# 5. Startup: seed default data
 @app.on_event("startup")
 def startup_event():
-    # 1. Start Background Engine
-    BackgroundEngine.start_worker()
-    print("Suma Core: Background Engine successfully initialized.")
+    from app.models import Tenant, User, Account, Role, Permission, Warehouse
+    from app.core.auth.security import hash_password
 
-    # 2. Seed default tenant and user if they don't exist (First Boot)
-    from app.database import SessionLocal
-    from app.models import Tenant, User
-    from app.core.auth.security import hash_password, ALGORITHM
-    
     db = SessionLocal()
     try:
+        # Seed Tenant
         if db.query(Tenant).count() == 0:
-            print("Suma Core: Seeding initial data...")
             tenant = Tenant(name="Suma Tech", domain="sumatech.in")
             db.add(tenant)
             db.commit()
             db.refresh(tenant)
-            
-            # Default Admin User
-            admin_user = User(
+
+            # Default Admin
+            admin = User(
                 username="admin@sumatech.in",
                 password=hash_password("admin123"),
                 role="Admin",
                 tenant_id=tenant.id
             )
-            db.add(admin_user)
+            db.add(admin)
+            
+            # Default Roles
+            for role_name in ["Admin", "Manager", "Sales Executive", "Accountant", "Technician", "Warehouse Manager", "HR Manager"]:
+                r = Role(name=role_name, tenant_id=tenant.id)
+                db.add(r)
             db.commit()
-            print(f"Suma Core: Default Admin user created: admin@sumatech.in / admin123")
+
+            # Default Chart of Accounts
+            accounts = [
+                ("1000", "Assets", "Asset", True),
+                ("1100", "Cash & Bank", "Asset", False),
+                ("1200", "Accounts Receivable", "Asset", False),
+                ("1300", "Inventory Asset", "Asset", False),
+                ("2000", "Liabilities", "Liability", True),
+                ("2100", "Accounts Payable", "Liability", False),
+                ("2300", "GST Payable", "Liability", False),
+                ("3000", "Equity", "Equity", True),
+                ("3100", "Opening Balance", "Equity", False),
+                ("4000", "Income", "Income", True),
+                ("4100", "Sales Income", "Income", False),
+                ("4200", "Service Income", "Income", False),
+                ("5000", "Expenses", "Expense", True),
+                ("5100", "Cost of Goods Sold", "Expense", False),
+                ("5200", "Salary Expense", "Expense", False),
+                ("5300", "General Expense", "Expense", False),
+            ]
+            for code, name, atype, is_group in accounts:
+                db.add(Account(code=code, name=name, type=atype, is_group=is_group, balance=0.0, tenant_id=tenant.id))
+
+            # Default Warehouse
+            db.add(Warehouse(id="WH-001", name="Main Warehouse", location="Pune", tenant_id=tenant.id))
+            db.commit()
+            
+            print("✅ SumaERP: Initial data seeded (admin@sumatech.in / admin123)")
         else:
-            print(f"Suma Core: Database check complete ({db.query(User).count()} users found)")
+            user_count = db.query(User).count()
+            print(f"✅ SumaERP: Database ready ({user_count} users)")
     except Exception as e:
-        print(f"Suma Core: Seeding failed: {str(e)}")
+        print(f"❌ Seeding error: {e}")
+        db.rollback()
     finally:
         db.close()
 
-    print("Suma Core: Startup complete.")
-
-@app.on_event("shutdown")
-def shutdown_event():
-    BackgroundEngine.stop_worker()
-    print("Suma Core: Shutdown complete.")
-
 @app.get("/")
-def read_root():
-    return {"status": "running", "schema": "modular", "core": "suma-v1"}
+def root():
+    return {"status": "running", "system": "SumaERP", "version": "2.0"}
