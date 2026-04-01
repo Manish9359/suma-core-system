@@ -1,61 +1,63 @@
 import { useState, useEffect } from "react";
-import { PlusCircle, Search, Edit, Trash2, ShieldCheck } from "lucide-react";
+import { PlusCircle, Search, Edit, Trash2, FileText, Filter } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { RecordModal, RecordField } from "@/components/RecordModal";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { LoadingState, ErrorState } from "@/components/LoadingState";
 import { Badge } from "@/components/ui/badge";
+import { getStatusColor, NamingSeries } from "@/lib/docEngine";
 
-export default function GenericModulePage({ 
-  doctype, 
-  title, 
+export default function GenericModulePage({
+  doctype,
+  title,
   description,
-  onRecordChange 
-}: { 
-  doctype: string, 
-  title?: string, 
-  description?: string,
-  onRecordChange?: (data: any) => any 
+  onRecordChange,
+}: {
+  doctype: string;
+  title?: string;
+  description?: string;
+  onRecordChange?: (data: any) => any;
 }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // 1. Fetch Metadata (The DocType Blueprint)
+  // Fetch metadata
   const { data: meta, isLoading: metaLoading, error: metaError, refetch: refetchMeta } = useApiQuery(
-    ["meta", doctype], 
+    ["meta", doctype],
     () => api.get<any>(`/api/v1/doc/meta/${doctype}`)
   );
 
-  // 2. Fetch Actual Data
+  // Fetch records
   const { data: records, isLoading: recordsLoading, refetch: refetchRecords } = useApiQuery(
-    ["doc", doctype], 
+    ["doc", doctype],
     () => api.get<any[]>(`/api/v1/doc/${doctype}`)
   );
 
   const rawFields = meta?.fields || [];
   const [fields, setFields] = useState<RecordField[]>([]);
+  const namingPrefix = meta?.naming_prefix || "";
 
-  // 3. Resolve Metadata (Links & Tables)
+  // Resolve metadata (links & tables)
   useEffect(() => {
     const resolveFieldOptions = async (f: any) => {
       const type = (f.fieldtype?.toLowerCase() || f.type?.toLowerCase() || "text").trim();
       let options = f.options;
-      
+
       if (typeof options === "string" && !options.includes(",")) {
         try {
           let targetDocType = (options.startsWith("Link:") ? options.split(":")[1] : options).trim();
           if (/^[A-Z]/.test(targetDocType) && type !== "table") {
             const targetDocs = await api.get<any[]>(`/api/v1/doc/${encodeURIComponent(targetDocType)}`);
             if (Array.isArray(targetDocs)) {
-              options = targetDocs.map(d => ({ 
-                label: d.customer_name || d.name || d.id, 
-                value: d.id, 
-                full_data: d 
+              options = targetDocs.map((d) => ({
+                label: d.customer_name || d.company || d.name || d.id,
+                value: d.id,
+                full_data: d,
               }));
             }
           }
@@ -70,42 +72,50 @@ export default function GenericModulePage({
 
     const resolveMetadata = async () => {
       const currentRawFields = meta?.fields || [];
-      const resolved = await Promise.all(currentRawFields.map(async (f: any) => {
-        const type = (f.fieldtype?.toLowerCase() || f.type?.toLowerCase() || "text").trim();
-        let options = await resolveFieldOptions(f);
-        let columns: any[] = [];
+      const resolved = await Promise.all(
+        currentRawFields.map(async (f: any) => {
+          const type = (f.fieldtype?.toLowerCase() || f.type?.toLowerCase() || "text").trim();
+          let options = await resolveFieldOptions(f);
+          let columns: any[] = [];
 
-        // 2. Resolve child table columns
-        if (type === "table") {
-          let childFields = Array.isArray(f.columns) ? f.columns : [];
-          if (childFields.length === 0 && typeof f.options === "string") {
-             try {
+          if (type === "table") {
+            let childFields = Array.isArray(f.columns) ? f.columns : [];
+            if (childFields.length === 0 && typeof f.options === "string") {
+              try {
                 const childMeta = await api.get<any>(`/api/v1/doc/meta/${encodeURIComponent(f.options)}`);
                 childFields = childMeta?.fields || [];
-             } catch (e) { console.error(`Child meta error for ${f.options}`, e); }
-          }
-          
-          columns = await Promise.all(childFields.map(async (cf: any) => ({
-            name: cf.name,
-            label: cf.label || cf.name,
-            type: cf.fieldtype?.toLowerCase() === "int" || cf.fieldtype?.toLowerCase() === "float" ? "number" : (cf.fieldtype?.toLowerCase() || cf.type?.toLowerCase() || "text"),
-            required: !!cf.required,
-            disabled: !!cf.readonly || !!cf.disabled,
-            options: await resolveFieldOptions(cf)
-          })));
-        }
+              } catch (e) {
+                console.error(`Child meta error for ${f.options}`, e);
+              }
+            }
 
-        return {
-          name: f.name,
-          label: f.label || f.name,
-          type: type === "int" || type === "float" || type === "number" ? "number" : type,
-          required: !!f.required,
-          disabled: !!f.readonly || !!f.disabled,
-          options,
-          columns,
-          fetch_from: f.fetch_from
-        };
-      }));
+            columns = await Promise.all(
+              childFields.map(async (cf: any) => ({
+                name: cf.name,
+                label: cf.label || cf.name,
+                type:
+                  cf.fieldtype?.toLowerCase() === "int" || cf.fieldtype?.toLowerCase() === "float"
+                    ? "number"
+                    : cf.fieldtype?.toLowerCase() || cf.type?.toLowerCase() || "text",
+                required: !!cf.required,
+                disabled: !!cf.readonly || !!cf.disabled,
+                options: await resolveFieldOptions(cf),
+              }))
+            );
+          }
+
+          return {
+            name: f.name,
+            label: f.label || f.name,
+            type: type === "int" || type === "float" || type === "number" ? "number" : type === "link" ? "link" : type,
+            required: !!f.required,
+            disabled: !!f.readonly || !!f.disabled,
+            options,
+            columns,
+            fetch_from: f.fetch_from,
+          };
+        })
+      );
       setFields(resolved);
     };
 
@@ -115,14 +125,13 @@ export default function GenericModulePage({
   if (metaLoading || recordsLoading) return <div className="module-page"><LoadingState message={`Loading ${title || doctype}...`} /></div>;
   if (metaError) return <div className="module-page"><ErrorState message={`Failed to load metadata for ${doctype}`} onRetry={refetchMeta} /></div>;
 
-  
-  // Decide which columns to show in the list view (first 4 text/string/email fields)
-  const listColumns = fields.filter(f => f.name !== "id" && f.name !== "tenant_id" && f.type !== "table").slice(0, 5);
+  const listColumns = fields.filter((f) => f.name !== "id" && f.name !== "tenant_id" && f.type !== "table" && !f.name.startsWith("_")).slice(0, 6);
+  const statusField = fields.find((f) => f.name === "workflow_state" || f.name === "status");
+  const hasStatus = !!statusField;
 
-  const filteredRecords = (Array.isArray(records) ? records : []).filter(r => 
-    Object.values(r).some(val => String(val).toLowerCase().includes(searchQuery.toLowerCase()))
+  const filteredRecords = (Array.isArray(records) ? records : []).filter((r) =>
+    Object.values(r).some((val) => String(val).toLowerCase().includes(searchQuery.toLowerCase()))
   );
-
 
   const handleSave = async (data: any) => {
     try {
@@ -140,6 +149,11 @@ export default function GenericModulePage({
   };
 
   const handleDelete = async (id: string | number) => {
+    const record = (records || []).find((r: any) => r.id === id);
+    if (record?.workflow_state === "Submitted" || record?.status === "Submitted") {
+      toast.error("Cannot delete a submitted document. Cancel it first.");
+      return;
+    }
     if (confirm(`Are you sure you want to delete this ${doctype}?`)) {
       try {
         await api.delete(`/api/v1/doc/${doctype}/${id}`);
@@ -151,29 +165,46 @@ export default function GenericModulePage({
     }
   };
 
+  const recordCount = filteredRecords.length;
+  const totalRecords = Array.isArray(records) ? records.length : 0;
+
   return (
     <div className="module-page">
+      {/* Header */}
       <div className="page-header">
         <div>
-          <h1 className="page-title">{title || doctype}</h1>
-          <p className="text-sm text-muted-foreground">{description || `Manage ${doctype} records dynamically.`}</p>
+          <h1 className="page-title flex items-center gap-3">
+            <FileText className="h-6 w-6 text-primary" />
+            {title || doctype}
+            <Badge variant="secondary" className="text-xs font-normal">{totalRecords}</Badge>
+          </h1>
+          <p className="text-sm text-muted-foreground">{description || `Manage ${doctype} records.`}</p>
+          {namingPrefix && (
+            <p className="text-xs text-muted-foreground mt-1 font-mono">
+              Naming: {NamingSeries.getPrefix(namingPrefix)}XXXXX
+            </p>
+          )}
         </div>
-        <Button onClick={() => { setEditingRecord(null); setModalOpen(true); }} className="gap-2">
-          <PlusCircle className="h-4 w-4" /> Add {doctype}
+        <Button onClick={() => { setEditingRecord(null); setModalOpen(true); }} className="gap-2 shadow-sm">
+          <PlusCircle className="h-4 w-4" /> New {doctype}
         </Button>
       </div>
 
-      <Card className="border-none shadow-md">
-        <CardHeader className="py-4 border-b">
+      {/* Data Table */}
+      <Card className="border-none shadow-md overflow-hidden">
+        <CardHeader className="py-3 px-5 border-b bg-card">
           <div className="flex items-center justify-between">
             <div className="relative w-72">
-              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-slate-400" />
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input
                 placeholder={`Search ${doctype}...`}
-                className="pl-9 h-9 bg-slate-50 border-slate-200"
+                className="pl-9 h-9 bg-muted/30"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {searchQuery ? `${recordCount} of ${totalRecords}` : `${totalRecords} records`}
             </div>
           </div>
         </CardHeader>
@@ -182,34 +213,60 @@ export default function GenericModulePage({
             <table className="data-table">
               <thead>
                 <tr>
-                  {listColumns.map(c => <th key={c.name}>{c.label}</th>)}
-                  <th className="text-right">Actions</th>
+                  {listColumns.map((c) => (
+                    <th key={c.name}>{c.label}</th>
+                  ))}
+                  <th className="text-right w-24">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredRecords.length === 0 ? (
                   <tr>
-                    <td colSpan={listColumns.length + 1} className="py-8 text-center text-muted-foreground">
-                      No records found. Click "Add {doctype}" to create one.
+                    <td colSpan={listColumns.length + 1} className="py-12 text-center text-muted-foreground">
+                      <div className="flex flex-col items-center gap-2">
+                        <FileText className="h-8 w-8 text-muted-foreground/40" />
+                        <p className="text-sm">No records found</p>
+                        <Button variant="outline" size="sm" onClick={() => { setEditingRecord(null); setModalOpen(true); }}>
+                          Create first {doctype}
+                        </Button>
+                      </div>
                     </td>
                   </tr>
-                ) : filteredRecords.map((record: any) => (
-                  <tr key={record.id}>
-                    {listColumns.map(c => (
-                      <td key={c.name} className="truncate max-w-[200px]">
-                        {c.name === "status" ? <Badge variant="outline">{record[c.name]}</Badge> : record[c.name]}
+                ) : (
+                  filteredRecords.map((record: any) => (
+                    <tr
+                      key={record.id}
+                      className="cursor-pointer hover:bg-muted/40 transition-colors"
+                      onClick={() => { setEditingRecord(record); setModalOpen(true); }}
+                    >
+                      {listColumns.map((c) => (
+                        <td key={c.name} className="truncate max-w-[200px]">
+                          {(c.name === "status" || c.name === "workflow_state") ? (
+                            <Badge variant="outline" className={`${getStatusColor(record[c.name])} text-[10px] font-semibold`}>
+                              {record[c.name]}
+                            </Badge>
+                          ) : c.type === "number" || c.type === "float" ? (
+                            <span className="font-mono text-sm">
+                              {typeof record[c.name] === "number" ? record[c.name].toLocaleString("en-IN") : record[c.name]}
+                            </span>
+                          ) : (
+                            record[c.name]
+                          )}
+                        </td>
+                      ))}
+                      <td className="text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex justify-end gap-1">
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => { setEditingRecord(record); setModalOpen(true); }}>
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => handleDelete(record.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </td>
-                    ))}
-                    <td className="text-right flex justify-end gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-primary" onClick={() => { setEditingRecord(record); setModalOpen(true); }}>
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-destructive" onClick={() => handleDelete(record.id)}>
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -218,15 +275,14 @@ export default function GenericModulePage({
 
       <RecordModal
         open={modalOpen}
-        onOpenChange={setModalOpen}
-        title={editingRecord?.id ? `Edit ${doctype} #${editingRecord.id}` : `New ${doctype}`}
+        onOpenChange={(v: boolean) => { setModalOpen(v); if (!v) refetchRecords(); }}
+        title={editingRecord?.id ? `${doctype} — ${editingRecord.name || editingRecord.id}` : `New ${doctype}`}
         fields={fields}
         initialData={editingRecord}
         onChangeData={onRecordChange}
         onSubmit={handleSave}
         doctype={doctype}
       />
-
     </div>
   );
 }

@@ -2,61 +2,45 @@ import { useState } from "react";
 import GenericModulePage from "./GenericModulePage";
 
 export default function SalesPage() {
-  const [tab, setTab] = useState<"Sales Invoice" | "Quotation">("Sales Invoice");
+  const [tab, setTab] = useState<"Sales Invoice" | "Quotation" | "Sales Order">("Sales Invoice");
 
-  // Calculation Logic for Invoices
-  const handleInvoiceChange = (data: any) => {
-     if (!data.items) return data;
-     const items = data.items.map((it: any) => ({
-        ...it,
-        amount: Number(it.qty || 0) * Number(it.rate || 0)
-     }));
-     const subtotal = items.reduce((acc: number, it: any) => acc + (it.amount || 0), 0);
-     const taxRate = Number(data.gst_rate || 18);
-     const taxAmount = (subtotal * taxRate) / 100;
-     return { ...data, items, amount: subtotal, tax: taxAmount, grand_total: subtotal + taxAmount };
-  };
+  const tabs = [
+    { key: "Sales Invoice" as const, label: "Invoices" },
+    { key: "Quotation" as const, label: "Quotations" },
+    { key: "Sales Order" as const, label: "Orders" },
+  ];
 
-  // Calculation Logic for Quotations
-  const handleQuotationChange = (data: any) => {
-    if (!data.items) return data;
-    const items = data.items.map((it: any) => ({
-       ...it,
-       amount: Number(it.qty || 0) * Number(it.rate || 0) * (1 - (Number(it.disc_pct || 0) / 100))
-    }));
-    const total = items.reduce((acc: number, it: any) => acc + (it.amount || 0), 0);
-    return { ...data, items, amount: total, grand_total: total };
+  const descriptions: Record<string, string> = {
+    "Sales Invoice": "Create invoices with auto-numbering, GST calculation, and GL posting on submit.",
+    "Quotation": "Generate price quotes. Convert to Sales Order when accepted.",
+    "Sales Order": "Confirmed orders. Create Delivery Notes and Invoices from here.",
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-50/50">
-      <div className="flex gap-4 border-b px-6 pt-4 bg-white">
-        <button 
-          onClick={() => setTab("Sales Invoice")} 
-          className={`pb-3 px-3 text-sm font-semibold transition-all border-b-2 ${tab === "Sales Invoice" ? "border-accent text-accent" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-        >
-          Sales Invoices
-        </button>
-        <button 
-          onClick={() => setTab("Quotation")} 
-          className={`pb-3 px-3 text-sm font-semibold transition-all border-b-2 ${tab === "Quotation" ? "border-accent text-accent" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-        >
-          Quotations
-        </button>
+    <div className="flex flex-col h-full">
+      <div className="flex gap-1 border-b px-6 pt-3 bg-card">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`pb-3 px-4 text-sm font-semibold transition-all border-b-2 ${
+              tab === t.key
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
-
-      <div className="flex-1 relative overflow-hidden">
-        <GenericModulePage 
-          key={tab} 
-          doctype={tab} 
+      <div className="flex-1 relative overflow-auto">
+        <GenericModulePage
+          key={tab}
+          doctype={tab}
           title={tab}
-          description={tab === "Sales Invoice" 
-            ? "Manage revenue, taxes, and accounting ledger synchronization." 
-            : "Generate professional price quotes for customers."} 
-          onRecordChange={tab === "Sales Invoice" ? handleInvoiceChange : handleQuotationChange}
+          description={descriptions[tab]}
         />
       </div>
     </div>
   );
 }
-
