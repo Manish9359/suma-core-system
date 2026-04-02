@@ -26,6 +26,14 @@ export default function GenericModulePage({
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const navigate = useNavigate();
+
+  const printableTypes: Record<string, string> = {
+    "Sales Invoice": "invoice",
+    "Quotation": "quotation",
+    "Purchase Order": "purchase_order",
+    "Purchase Receipt": "purchase_receipt",
+  };
 
   // Fetch metadata
   const { data: meta, isLoading: metaLoading, error: metaError, refetch: refetchMeta } = useApiQuery(
