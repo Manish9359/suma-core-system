@@ -278,6 +278,21 @@ export default function GenericModulePage({
                       ))}
                       <td className="text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-end gap-1">
+                          {printableTypes[doctype] && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-accent"
+                              title="Print / PDF"
+                              onClick={() => {
+                                const id = getRecordId(record);
+                                const type = printableTypes[doctype];
+                                window.open(type === "invoice" ? `/invoice/${id}` : `/print/${type}/${id}`, "_blank");
+                              }}
+                            >
+                              <Printer className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => { setEditingRecord(record); setModalOpen(true); }}>
                             <Edit className="h-4 w-4" />
                           </Button>
