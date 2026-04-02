@@ -1,0 +1,41 @@
+{
+  "name": "StockLedger",
+  "module": "Inventory",
+  "track_changes": true,
+  "fields": [
+    {
+      "name": "item_code",
+      "label": "Item Code",
+      "fieldtype": "link",
+      "options": "Product",
+      "required": true
+    },
+    {
+      "name": "warehouse",
+      "label": "Warehouse",
+      "fieldtype": "link",
+      "options": "Warehouse",
+      "required": true
+    },
+    {
+      "name": "qty",
+      "label": "Qty Change",
+      "fieldtype": "float"
+    },
+    {
+      "name": "voucher_type",
+      "label": "Voucher Type",
+      "fieldtype": "text"
+    },
+    {
+      "name": "voucher_no",
+      "label": "Voucher No",
+      "fieldtype": "text"
+    },
+    {
+      "name": "date",
+      "label": "Posting Date",
+      "fieldtype": "date"
+    }
+  ]
+}

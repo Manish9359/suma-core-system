@@ -50,6 +50,10 @@ function ProductCatalog() {
     ["doc", "Product"],
     () => api.get<any[]>("/api/v1/doc/Product")
   );
+  const { data: warehouses } = useApiQuery(
+    ["warehouses"],
+    () => api.get<any[]>("/api/v1/warehouses")
+  );
 
   if (isLoading || metaLoading) return <LoadingState message="Loading products..." />;
   if (error) return <ErrorState message="Failed to load products" onRetry={refetch} />;
@@ -77,13 +81,27 @@ function ProductCatalog() {
 
   const fields: RecordField[] = (meta?.fields || [])
     .filter((f: any) => f.name !== "id" && f.name !== "tenant_id")
-    .map((f: any) => ({
-      name: f.name,
-      label: f.label || f.name,
-      type: f.fieldtype?.toLowerCase() === "int" || f.fieldtype?.toLowerCase() === "float" ? "number" : "text",
-      required: !!f.required,
-      disabled: !!f.readonly,
-    }));
+    .map((f: any) => {
+      const type = f.fieldtype?.toLowerCase();
+      const base: RecordField = {
+        name: f.name,
+        label: f.label || f.name,
+        type: type === "int" || type === "float" ? "number" : 
+              type === "select" ? "select" : 
+              type === "link" ? "select" : "text",
+        required: !!f.required,
+        disabled: !!f.readonly,
+      };
+
+      if (f.name === "warehouse") {
+        base.type = "select";
+        base.options = (warehouses || []).map((wh: any) => ({ label: wh.name || wh.id, value: wh.id }));
+      } else if (f.options && typeof f.options === "string" && f.options.includes(",")) {
+        base.type = "select";
+        base.options = f.options.split(",").map((o: string) => ({ label: o.trim(), value: o.trim() }));
+      }
+      return base;
+    });
 
   const handleSave = async (data: any) => {
     try {
@@ -228,6 +246,7 @@ function ProductCatalog() {
                   <th>Product</th>
                   <th>SKU / Code</th>
                   <th>Category</th>
+                  <th>Warehouse</th>
                   <th className="text-right">Cost (₹)</th>
                   <th className="text-right">Sell (₹)</th>
                   <th className="text-center">Stock</th>
@@ -254,6 +273,11 @@ function ProductCatalog() {
                         <td className="font-semibold">{p.name || p.item_name || id}</td>
                         <td className="font-mono text-xs text-muted-foreground">{id}</td>
                         <td>{p.category || p.brand || "—"}</td>
+                        <td>
+                          <Badge variant="outline" className="bg-primary/5 text-primary-foreground/70 border-primary/20 text-[10px] font-mono">
+                            {p.warehouse || "N/A"}
+                          </Badge>
+                        </td>
                         <td className="text-right font-mono">{Number(p.cost || 0).toLocaleString("en-IN")}</td>
                         <td className="text-right font-mono">{Number(p.sell || p.selling_price || 0).toLocaleString("en-IN")}</td>
                         <td className="text-center font-bold">{stock}</td>
@@ -340,7 +364,7 @@ function ProductCatalog() {
 }
 
 export default function InventoryPage() {
-  const [tab, setTab] = useState<"products" | "warehouses">("products");
+  const [tab, setTab] = useState<"products" | "warehouses" | "ledger" | "bins">("products");
 
   return (
     <div className="flex flex-col h-full">
@@ -361,12 +385,32 @@ export default function InventoryPage() {
         >
           Warehouses
         </button>
+        <button
+          onClick={() => setTab("ledger")}
+          className={`pb-3 px-4 text-sm font-semibold transition-all border-b-2 ${
+            tab === "ledger" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Stock Ledger
+        </button>
+        <button
+          onClick={() => setTab("bins")}
+          className={`pb-3 px-4 text-sm font-semibold transition-all border-b-2 ${
+            tab === "bins" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Warehouse Balances
+        </button>
       </div>
       <div className="flex-1 relative overflow-auto">
         {tab === "products" ? (
           <ProductCatalog />
-        ) : (
+        ) : tab === "warehouses" ? (
           <GenericModulePage doctype="Warehouse" title="Warehouses" description="Manage storage locations" />
+        ) : tab === "ledger" ? (
+          <GenericModulePage doctype="StockLedger" title="Stock Ledger" description="History of all stock movements" />
+        ) : (
+          <GenericModulePage doctype="Bin" title="Warehouse Balances" description="Real-time stock per warehouse" />
         )}
       </div>
     </div>

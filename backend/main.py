@@ -8,10 +8,52 @@ from app.database import engine, Base, get_db
 from app.routers import (public)
 from app.api.v1.router import router as api_v1_router
 from app.models import (Tenant, User, Role, Permission, Notification, WorkflowSignature, CustomField, Lead, Customer, Product, Invoice, InvoiceItem, Account, LedgerEntry, Employee, PurchaseOrder, PurchaseOrderItem, WorkflowTask, CompanySettings, Quotation, QuotationItem, Warehouse, StockLedger, StockEntry, StockEntryItem, Supplier, Project, Task, SalesOrder, SalesOrderItem, PurchaseReceipt, PurchaseReceiptItem, BOM, BOMItem, PaymentEntry, MaterialRequest, MaterialRequestItem, Asset, Issue, QualityInspection, Attendance, SalarySlip, WebPage, Timesheet, TimesheetItem, AuditLog)
-from app.schemas import LoginReq, TokenRes, CustomerCreate, ProductCreate, InvoiceCreate, EmployeeCreate, CompanySettingsUpdate
+from app.schemas import LoginReq, TokenRes
 from app.core.auth.security import hash_password, verify_password, create_access_token as create_token, get_current_user as get_current_user_token, check_permission as has_permission
-from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
+from pydantic import BaseModel
+class CustomerCreate(BaseModel):
+    company: str
+    contact: str = ""
+    address: str = ""
+    gst: str = ""
+    notes: str = ""
+
+class ProductCreate(BaseModel):
+    sku: str
+    name: str
+    brand: str = ""
+    category: str = ""
+    cost: float = 0.0
+    sell: float = 0.0
+    stock: int = 0
+    warehouse: str = ""
+
+class EmployeeCreate(BaseModel):
+    name: str
+    role: str = ""
+    dept: str = ""
+    salary: float = 0.0
+    joining: str = ""
+
+class CompanySettingsUpdate(BaseModel):
+    company_name: Optional[str] = None
+    gstin: Optional[str] = None
+    address: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    bank_name: Optional[str] = None
+    bank_account: Optional[str] = None
+    bank_ifsc: Optional[str] = None
+    bank_branch: Optional[str] = None
+    terms: Optional[str] = None
+
+class InvoiceCreate(BaseModel):
+    customer: str
+    date: str
+    items: List[dict] = []
+    amount: float = 0.0
+    grand_total: float = 0.0
 from collections import defaultdict
 from datetime import datetime
 
@@ -61,109 +103,7 @@ def login(data: LoginReq, db: Session = Depends(get_db)):
 def get_me(user: User = Depends(get_current_user_token)):
     return {"id": user.id, "email": user.username, "name": str(user.username.split("@")[0]).capitalize(), "role": user.role, "status": user.status}
 
-# ─── COMPANY SETTINGS ───
-@app.get("/api/v1/settings/company")
-def get_company_settings(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    conf = db.query(CompanySettings).filter(CompanySettings.tenant_id == user.tenant_id).first()
-    if not conf:
-        # Default seed
-        conf = CompanySettings(tenant_id=user.tenant_id)
-        db.add(conf)
-        db.commit()
-    return conf
-
-@app.put("/api/v1/settings/company")
-def update_company_settings(data: CompanySettingsUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    if user.role != "Admin": raise HTTPException(403, "Admin access required")
-    conf = db.query(CompanySettings).filter(CompanySettings.tenant_id == user.tenant_id).first()
-    if not conf:
-        conf = CompanySettings(tenant_id=user.tenant_id)
-        db.add(conf)
-    
-    # Map all allowed fields
-    for k, v in data.dict(exclude_unset=True).items():
-        setattr(conf, k, v)
-        
-    db.commit()
-    return {"status": "success"}
-
-# ─── USER MANAGEMENT (ADMIN) ───
-@app.get("/api/v1/system/users")
-def list_users(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    if user.role != "Admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    return db.query(User).filter(User.tenant_id == user.tenant_id).all()
-
-class UserUpdate(BaseModel):
-    username: str | None = None
-    role: str | None = None
-    status: str | None = None
-    password: str | None = None
-
-@app.post("/api/v1/system/users")
-def create_user(data: UserUpdate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    if user.role != "Admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    if not data.password:
-        raise HTTPException(status_code=400, detail="Password is required")
-    new_user = User(
-        username=data.username,
-        password=hash_password(data.password),
-        role=data.role or "Employee",
-        status="Active",
-        tenant_id=user.tenant_id
-    )
-    db.add(new_user)
-    db.commit()
-    return {"status": "success", "id": new_user.id}
-
-@app.delete("/api/v1/system/users/{uid}")
-def delete_user(uid: int, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    if user.role != "Admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
-    target = db.query(User).filter(User.id == uid, User.tenant_id == user.tenant_id).first()
-    if not target: raise HTTPException(status_code=404, detail="User not found")
-    db.delete(target)
-    db.commit()
-    return {"status": "success"}
-
-# --- ROLE & PERMISSION MANAGEMENT ---
-@app.get("/api/v1/system/roles")
-def list_roles(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    return db.query(Role).filter(Role.tenant_id == user.tenant_id).all()
-
-@app.post("/api/v1/system/roles")
-def create_role(name: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    if user.role != "Admin": raise HTTPException(403, "Admin only")
-    new_role = Role(name=name, tenant_id=user.tenant_id)
-    db.add(new_role)
-    db.commit()
-    return {"status": "success", "id": new_role.id}
-
-@app.get("/api/v1/system/roles/{rid}/permissions")
-def get_role_permissions(rid: int, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    return db.query(Permission).filter_by(role_id=rid).all()
-
-@app.post("/api/v1/system/roles/{rid}/permissions")
-def update_role_permissions(rid: int, permissions: List[dict], db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    if user.role != "Admin": raise HTTPException(403, "Admin only")
-    # Clean old
-    db.query(Permission).filter_by(role_id=rid).delete()
-    # Add new
-    for p in permissions:
-        perm = Permission(
-            role_id=rid,
-            doctype=p['doctype'],
-            can_read=p.get('can_read', True),
-            can_write=p.get('can_write', False),
-            can_create=p.get('can_create', False),
-            can_delete=p.get('can_delete', False),
-            can_submit=p.get('can_submit', False),
-            can_cancel=p.get('can_cancel', False)
-        )
-        db.add(perm)
-    db.commit()
-    return {"status": "success"}
+# Auth endpoints are above. Modular DocType API (router) included above.
 
 # ─── WORKFLOW & SIGNATURES ───
 @app.post("/api/v1/workflow/approve/{doctype}/{docid}")
@@ -227,180 +167,9 @@ def read_notification(nid: int, db: Session = Depends(get_db), user: User = Depe
         db.commit()
     return {"status": "success"}
 
-# ─── PURCHASING ───
-@app.get("/api/v1/purchasing/orders")
-def get_purchasing(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    return db.query(PurchaseOrder).filter(PurchaseOrder.tenant_id == user.tenant_id).all()
+# Purchasing and Dashboard KPI endpoints are consolidated below.
 
-class PurchaseOrderCreate(BaseModel):
-    vendor: str
-    date: str
-    items: List[dict] # simplify for now
-
-@app.post("/api/v1/purchasing/orders")
-def create_purchasing(data: PurchaseOrderCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    if not has_permission(user, "Purchase Order", "create", db):
-        raise HTTPException(status_code=403, detail="Insufficient Purchase permissions")
-    po_id = f"PO-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}"
-    total = sum([(i.get("qty", 0) * i.get("rate", 0)) for i in data.items])
-    po = PurchaseOrder(id=po_id, vendor=data.vendor, date=data.date, items=len(data.items), total=total, status="Ordered", tenant_id=user.tenant_id)
-    db.add(po)
-    db.commit()
-    db.refresh(po)
-    return po
-
-# ─── DASHBOARD ───
-@app.get("/api/v1/reports/kpis")
-def get_kpis(user: User = Depends(get_current_user_token), db: Session = Depends(get_db)):
-    t_id = user.tenant_id
-    total_sales = db.query(func.sum(Invoice.amount)).filter(Invoice.tenant_id == t_id, Invoice.status != "Draft").scalar() or 0
-    invoices = db.query(Invoice).filter(Invoice.tenant_id == t_id).count()
-    low_stock = db.query(Product).filter(Product.tenant_id == t_id, Product.stock < 10).count()
-    return {
-        "total_sales": f"₹{float(total_sales):,.2f}",
-        "monthly_revenue": f"₹{float(total_sales):,.2f}",
-        "pending_invoices": db.query(Invoice).filter(Invoice.tenant_id == t_id, Invoice.status == "Draft").count(),
-        "low_stock_items": low_stock,
-        "sales_change": "0%", "revenue_change": "0%", "invoices_change": "0%", "stock_change": "0%",
-        "active_amcs": 0, "open_tickets": 0, "amc_change": "0", "tickets_change": "0"
-    }
-
-@app.get("/api/v1/reports/sales-chart")
-def get_sales_chart(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    invs = db.query(Invoice).filter(Invoice.tenant_id == user.tenant_id, Invoice.status != "Draft").all()
-    months: Dict[str, float] = defaultdict(float)
-    for i in invs:
-        try:
-            m = datetime.strptime(str(i.date), "%Y-%m-%d").strftime("%b")
-            months[m] += float(i.amount or 0)
-        except: pass
-    return [{"month": k, "value": v} for k, v in months.items()] if months else []
-
-@app.get("/api/v1/reports/revenue-chart")
-def get_revenue_chart(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    ledgers = db.query(LedgerEntry).filter(LedgerEntry.tenant_id == user.tenant_id, LedgerEntry.account == "4100").all()
-    months: Dict[str, float] = defaultdict(float)
-    for l in ledgers:
-        try:
-            m = datetime.strptime(str(l.date), "%Y-%m-%d").strftime("%b")
-            months[m] += float(l.credit or 0)
-        except: pass
-    return [{"month": k, "value": v} for k, v in months.items()] if months else []
-
-@app.get("/api/v1/reports/inventory-chart")
-def get_inventory_chart(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    prods = db.query(Product).filter(Product.tenant_id == user.tenant_id, Product.stock > 0).limit(5).all()
-    return [{"name": p.name, "value": float(p.stock)} for p in prods]
-
-@app.get("/api/v1/reports/recent-activity")
-def get_recent_activity(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    recent_invs = db.query(Invoice).filter(Invoice.tenant_id == user.tenant_id).order_by(Invoice.id.desc()).limit(3).all()
-    recent_leads = db.query(Lead).filter(Lead.tenant_id == user.tenant_id).order_by(Lead.id.desc()).limit(3).all()
-    acts = [{"text": f"Invoice {i.id} approved", "time": str(i.date)} for i in recent_invs]
-    acts += [{"text": f"New Lead: {l.name}", "time": "Recently"} for l in recent_leads]
-    return acts[:6]
-
-# ─── CUSTOMIZATION (DocTypes fields) ───
-@app.get("/api/v1/system/fields/{module_name}")
-def get_custom_fields(module_name: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    return db.query(CustomField).filter(CustomField.module == module_name, CustomField.tenant_id == user.tenant_id).all()
-
-# ─── CRM (Customers & Leads) ───
-@app.get("/api/v1/crm/leads")
-def list_leads(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    return db.query(Lead).filter(Lead.tenant_id == user.tenant_id).all()
-
-class LeadCreate(BaseModel):
-    name: str
-    company: str = ""
-    phone: str = ""
-    email: str = ""
-    source: str = ""
-
-@app.post("/api/v1/crm/leads")
-def create_lead(data: LeadCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    if not has_permission(user, "CRM Lead", "create", db): 
-        raise HTTPException(status_code=403, detail="Insufficient CRM permissions")
-    lead_id = f"LD-{uuid.uuid4().hex[:6].upper()}"
-    lead = Lead(id=lead_id, tenant_id=user.tenant_id, name=data.name, company=data.company, phone=data.phone, email=data.email, status="New")
-    db.add(lead)
-    db.commit()
-    db.refresh(lead)
-    return lead
-
-@app.get("/api/v1/crm/customers")
-def list_customers(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    return db.query(Customer).filter(Customer.tenant_id == user.tenant_id).all()
-
-@app.post("/api/v1/crm/customers")
-def create_customer(data: CustomerCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    if user.role != "Admin": raise HTTPException(403, "Admins only")
-    cust_id = f"CUST-{uuid.uuid4().hex[:6].upper()}"
-    cust = Customer(id=cust_id, tenant_id=user.tenant_id, **data.dict(exclude_unset=True))
-    db.add(cust)
-    db.commit()
-    db.refresh(cust)
-    return cust
-
-@app.put("/api/v1/crm/customers/{cust_id}")
-def update_customer(cust_id: str, data: CustomerCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    if user.role != "Admin": raise HTTPException(403, "Admins only")
-    cust = db.query(Customer).filter_by(id=cust_id, tenant_id=user.tenant_id).first()
-    if not cust: raise HTTPException(404, "Customer not found")
-    for k, v in data.dict(exclude_unset=True).items(): setattr(cust, k, v)
-    db.commit(); db.refresh(cust)
-    return cust
-
-@app.delete("/api/v1/crm/customers/{cust_id}")
-def delete_customer(cust_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    if user.role != "Admin": raise HTTPException(403, "Admins only")
-    cust = db.query(Customer).filter_by(id=cust_id, tenant_id=user.tenant_id).first()
-    if not cust: raise HTTPException(404)
-    db.delete(cust); db.commit()
-    return {"status": "deleted"}
-@app.get("/api/v1/inventory/products")
-def list_products(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    return db.query(Product).filter(Product.tenant_id == user.tenant_id).all()
-
-@app.post("/api/v1/inventory/products")
-def add_product(data: ProductCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    if user.role != "Admin": raise HTTPException(403, "Admins only")
-    prod = Product(tenant_id=user.tenant_id, **data.dict(exclude_unset=True))
-    db.add(prod)
-    db.commit()
-    db.refresh(prod)
-    return prod
-
-@app.put("/api/v1/inventory/products/{sku}")
-def update_product(sku: str, data: ProductCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    if user.role != "Admin": raise HTTPException(403, "Admins only")
-    p = db.query(Product).filter_by(sku=sku, tenant_id=user.tenant_id).first()
-    if not p: raise HTTPException(404, "Product not found")
-    for k, v in data.dict(exclude_unset=True).items():
-        setattr(p, k, v)
-    db.commit()
-    db.refresh(p)
-    return p
-
-@app.delete("/api/v1/inventory/products/{sku}")
-def delete_product(sku: str, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    if user.role != "Admin": raise HTTPException(403, "Admins only")
-    p = db.query(Product).filter_by(sku=sku, tenant_id=user.tenant_id).first()
-    if not p: raise HTTPException(404, "Product not found")
-    db.delete(p)
-    db.commit()
-    return {"status": "deleted"}
-
-@app.get("/api/v1/inventory/summary")
-def get_inv_summary(db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    t_id = user.tenant_id
-    total_val = db.query(func.sum(Product.stock * Product.cost)).filter(Product.tenant_id == t_id).scalar() or 0
-    return {
-        "total_products": db.query(Product).filter(Product.tenant_id == t_id).count(),
-        "stock_value": f"₹{total_val:,.2f}",
-        "warehouses": db.query(Product.warehouse).filter(Product.tenant_id == t_id).distinct().count(),
-        "low_stock_count": db.query(Product).filter(Product.tenant_id == t_id, Product.stock < 10).count()
-    }
+# CRM and Inventory endpoints are consolidated below.
 
 # ─── ACCOUNTING & SALES (Invoices) ───
 @app.get("/api/v1/sales/invoices")
@@ -592,23 +361,46 @@ def get_hr_summary(db: Session = Depends(get_db), user: User = Depends(get_curre
     return {"total_employees": count, "on_leave": 0, "monthly_payroll": f"₹{payroll:,.2f}", "departments": 3}
 
 # ─── SEED ───
+# ─── SEED / INITIALIZATION ───
 def initialize_system():
     db = next(get_db())
-    if not db.query(Tenant).filter_by(name="ERPBase").first():
-        t = Tenant(name="ERPBase")
+    # 1. Ensure Tenant exists
+    t = db.query(Tenant).filter_by(name="SUMA-TECH").first()
+    if not t:
+        t = Tenant(name="SUMA-TECH")
         db.add(t)
         db.commit()
         db.refresh(t)
+    
+    # 2. Ensure Admin Role exists
+    r = db.query(Role).filter_by(name="Admin", tenant_id=t.id).first()
+    if not r:
+        r = Role(name="Admin", tenant_id=t.id)
+        db.add(r)
+        db.commit()
+        db.refresh(r)
 
-        admin = User(username="admin@erp.com", password=hash_password("admin123"), role="Admin", tenant_id=t.id)
+    # 3. Ensure Admin User exists
+    admin_email = "admin@sumatech.in"
+    admin = db.query(User).filter_by(username=admin_email).first()
+    if not admin:
+        admin = User(
+            username=admin_email, 
+            password=hash_password("admin123"), 
+            role="Admin", 
+            status="Active",
+            tenant_id=t.id
+        )
         db.add(admin)
         db.commit()
-        
-        # Pure initialization, strict removal of all demo products/customers.
-        db.add(CustomField(module="Customer", fieldname="industry", label="Industry Sector", fieldtype="Select", tenant_id=t.id))
+        print(f"✅ Created master admin: {admin_email}")
+    else:
+        # Reset password to ensure testability
+        admin.password = hash_password("admin123")
+        admin.tenant_id = t.id
         db.commit()
 
-# Call seed
+# Call seed on startup
 initialize_system()
 
 # ─── MISSING DASHBOARD CHARTS & ACTIVITY ───
@@ -1337,85 +1129,6 @@ def generate_report(type: str, format: str = "csv", db: Session = Depends(get_db
         
     stream.seek(0)
     return StreamingResponse(stream, media_type=media_type, headers={"Content-Disposition": f"attachment; filename={filename}"})
-
-# --- ZERO FILL LOGIC FOR DATA ENTRY ---
-def fill_zero(val):
-    try: return float(val or 0)
-    except: return 0.0
-
-@app.post("/api/v1/inventory/products")
-def create_product(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    sku = data.get("sku") or f"ITEM-{uuid.uuid4().hex[:4].upper()}"
-    p = Product(
-        sku=sku,
-        name=data.get("name"),
-        brand=data.get("brand", ""),
-        category=data.get("category", ""),
-        cost=fill_zero(data.get("cost")),
-        sell=fill_zero(data.get("sell")),
-        stock=int(fill_zero(data.get("stock"))),
-        warehouse=data.get("warehouse", "Main"),
-        tenant_id=user.tenant_id
-    )
-    db.add(p)
-    if p.stock > 0:
-        db.add(StockLedger(
-            item_code=sku, 
-            warehouse=p.warehouse, 
-            qty=float(p.stock), 
-            voucher_type="Opening Stock", 
-            voucher_no="OPENING", 
-            tenant_id=user.tenant_id
-        ))
-    db.commit(); db.refresh(p); return p
-
-@app.post("/api/v1/sales/invoices")
-def create_invoice(data: dict, db: Session = Depends(get_db), user: User = Depends(get_current_user_token)):
-    items = data.pop("items", [])
-    inv_id = f"INV-{datetime.now().year}-{uuid.uuid4().hex[:4].upper()}"
-    total = sum([fill_zero(i.get("qty",0)) * fill_zero(i.get("rate",0)) for i in items])
-    
-    # Tax Calculation
-    tax_rate = fill_zero(data.get("tax_rate", 0))
-    tax_calc = float(f"{(total * (tax_rate / 100)):.2f}")
-    tax_amount = fill_zero(data.get("tax", tax_calc))
-    grand_total = total + tax_amount
-    
-    inv = Invoice(
-        id=inv_id,
-        customer=data.get("customer"),
-        date=data.get("date", datetime.now().strftime("%Y-%m-%d")),
-        amount=total,
-        tax=tax_amount,
-        grand_total=grand_total,
-        status="Draft",
-        tenant_id=user.tenant_id,
-        custom_data={"tax_rate": tax_rate, **data.get("custom_data", {})}
-    )
-    db.add(inv)
-    
-    for i in items:
-        qty = fill_zero(i.get("qty",1))
-        rate = fill_zero(i.get("rate",0))
-        item_code = i.get("item_code")
-        db.add(InvoiceItem(invoice_id=inv_id, item_code=item_code, qty=int(qty), rate=rate, amount=qty*rate))
-        # Stock Ledger & Deduction
-        prod = db.query(Product).filter_by(sku=item_code, tenant_id=user.tenant_id).first()
-        if prod:
-            prod.stock -= int(qty)
-            db.add(StockLedger(item_code=item_code, warehouse=prod.warehouse, qty=-float(qty), voucher_type="Invoice", voucher_no=inv_id, tenant_id=user.tenant_id))
-    
-    # Ensure 2300 account exists
-    if tax_amount > 0 and not db.query(Account).filter_by(code="2300", tenant_id=user.tenant_id).first():
-        db.add(Account(code="2300", name="Taxes & Duties Payable", type="Liability", tenant_id=user.tenant_id))
-
-    # Advanced Double-Entry Accounting: Post to Ledger
-    db.add(LedgerEntry(date=inv.date, account="1200", debit=grand_total, credit=0.0, description=f"Invoice {inv_id} to {inv.customer}", tenant_id=user.tenant_id))
-    db.add(LedgerEntry(date=inv.date, account="4100", debit=0.0, credit=total, description=f"Sales Rev: {inv_id}", tenant_id=user.tenant_id))
-    if tax_amount > 0:
-        db.add(LedgerEntry(date=inv.date, account="2300", debit=0.0, credit=tax_amount, description=f"Taxes out on {inv_id}", tenant_id=user.tenant_id))
-    
-    db.commit(); db.refresh(inv); return inv
 
 # --- WAREHOUSES ---
 @app.get("/api/v1/warehouses")

@@ -1,0 +1,39 @@
+{
+  "name": "Bin",
+  "module": "Inventory",
+  "track_changes": true,
+  "fields": [
+    {
+      "name": "item_code",
+      "label": "Item Code",
+      "fieldtype": "link",
+      "options": "Product",
+      "required": true
+    },
+    {
+      "name": "warehouse",
+      "label": "Warehouse",
+      "fieldtype": "link",
+      "options": "Warehouse",
+      "required": true
+    },
+    {
+      "name": "actual_qty",
+      "label": "Actual Qty",
+      "fieldtype": "float",
+      "readonly": true
+    },
+    {
+      "name": "reserved_qty",
+      "label": "Reserved Qty",
+      "fieldtype": "float",
+      "readonly": true
+    },
+    {
+      "name": "projected_qty",
+      "label": "Projected Qty",
+      "fieldtype": "float",
+      "readonly": true
+    }
+  ]
+}

@@ -1,14 +1,14 @@
 
 from sqlalchemy.orm import Session
-from app.models import GLEntry, StockLedgerEntry, Account
+from app.models import LedgerEntry, StockLedger, Account, Bin, Product
 from .base import BaseDocument
 from sqlalchemy import func
 
 def validate_gl_balancing(db: Session, voucher_type: str, voucher_no: str, tenant_id: int):
     """Point 4 logic: Ensure every transaction follows the Double Entry rule (Debit = Credit)."""
     totals = db.query(
-        func.sum(GLEntry.debit).label("total_debit"),
-        func.sum(GLEntry.credit).label("total_credit")
+        func.sum(LedgerEntry.debit).label("total_debit"),
+        func.sum(LedgerEntry.credit).label("total_credit")
     ).filter_by(
         voucher_type=voucher_type, 
         voucher_no=voucher_no, 
@@ -25,7 +25,7 @@ def validate_gl_balancing(db: Session, voucher_type: str, voucher_no: str, tenan
 
 def update_account_balances(db: Session, voucher_type: str, voucher_no: str, tenant_id: int):
     """Point 4 logic: Final destination of entries is updating the Account summary."""
-    entries = db.query(GLEntry).filter_by(
+    entries = db.query(LedgerEntry).filter_by(
         voucher_type=voucher_type, 
         voucher_no=voucher_no, 
         tenant_id=tenant_id
@@ -34,8 +34,6 @@ def update_account_balances(db: Session, voucher_type: str, voucher_no: str, ten
     for entry in entries:
         acc = db.query(Account).filter_by(code=entry.account, tenant_id=tenant_id).first()
         if acc:
-            # Asset & Expense increase with Debit, Decrease with Credit
-            # Liability, Income & Equity Increase with Credit, Decrease with Debit
             change = (entry.debit or 0) - (entry.credit or 0)
             if acc.type in ["Income", "Liability", "Equity"]:
                 change = -change
@@ -53,27 +51,27 @@ def post_sales_invoice_to_gl(doc: BaseDocument, db: Session, tenant_id: int):
     customer = doc.get("customer") or "Unknown"
     
     # 1. Debit Entry
-    debit_entry = GLEntry(
+    debit_entry = LedgerEntry(
         account="Trade Receivable", # Using formal codes
-        posting_date=doc.get("date"),
+        date=doc.get("date"),
         voucher_type="Sales Invoice",
         voucher_no=doc.name,
         debit=grand_total,
         credit=0.0,
-        remarks=f"Sale to {customer}",
+        description=f"Sale to {customer}",
         tenant_id=tenant_id
     )
     db.add(debit_entry)
     
     # 2. Credit Entry
-    credit_entry = GLEntry(
+    credit_entry = LedgerEntry(
         account="Sales Income",
-        posting_date=doc.get("date"),
+        date=doc.get("date"),
         voucher_type="Sales Invoice",
         voucher_no=doc.name,
         debit=0.0,
         credit=grand_total,
-        remarks=f"Sale to {customer}",
+        description=f"Sale to {customer}",
         tenant_id=tenant_id
     )
     db.add(credit_entry)
@@ -83,16 +81,16 @@ def post_sales_invoice_to_gl(doc: BaseDocument, db: Session, tenant_id: int):
         items = doc.get("items") or []
         warehouse = doc.get("warehouse")
         for item in items:
-            sle = StockLedgerEntry(
+            sle = StockLedger(
                 item_code=item.get("item_code"),
                 warehouse=warehouse,
-                posting_date=doc.get("date"),
                 voucher_type="Sales Invoice",
                 voucher_no=doc.name,
-                qty_change=-(item.get("qty") or 0),
+                qty=-(item.get("qty") or 0),
                 tenant_id=tenant_id
             )
             db.add(sle)
+            update_bin(db, sle.item_code, sle.warehouse, sle.qty, tenant_id)
             print(f"📦 Stock reduction (Update Stock): {item.get('item_code')} (-{item.get('qty')}) in {warehouse}")
     
     db.flush() # Flush to ensure entries exist for validation
@@ -111,16 +109,16 @@ def post_delivery_note_to_stock(doc: BaseDocument, db: Session, tenant_id: int):
     warehouse = doc.get("warehouse")
     
     for item in items:
-        sle = StockLedgerEntry(
+        sle = StockLedger(
             item_code=item.get("item_code"),
             warehouse=warehouse,
-            posting_date=doc.get("date"),
             voucher_type="Delivery Note",
             voucher_no=doc.name,
-            qty_change=-(item.get("qty") or 0), # Redux stock
+            qty=-(item.get("qty") or 0), # Redux stock
             tenant_id=tenant_id
         )
         db.add(sle)
+        update_bin(db, sle.item_code, sle.warehouse, sle.qty, tenant_id)
         print(f"Post Stock: {item.get('item_code')} reduced by {item.get('qty')} in {warehouse}")
 
 def post_work_order_to_stock(doc: BaseDocument, db: Session, tenant_id: int):
@@ -139,29 +137,29 @@ def post_work_order_to_stock(doc: BaseDocument, db: Session, tenant_id: int):
     # 1. Consume Raw Materials (Decrease Stock)
     for rm in bom.get("items") or []:
         needed_qty = (rm.get("qty") or 0) * qty_to_make
-        sle = StockLedgerEntry(
+        sle = StockLedger(
             item_code=rm.get("item_code"),
             warehouse=fg_wh, # Simple: use same warehouse for now
-            posting_date=doc.get("date"),
             voucher_type="Work Order",
             voucher_no=doc.name,
-            qty_change=-needed_qty,
+            qty=-needed_qty,
             tenant_id=tenant_id
         )
         db.add(sle)
+        update_bin(db, sle.item_code, sle.warehouse, sle.qty, tenant_id)
         print(f"🏭 RM Consumed: {rm.get('item_code')} (-{needed_qty})")
         
     # 2. Produce Finished Good (Increase Stock)
-    sle_fg = StockLedgerEntry(
+    sle_fg = StockLedger(
         item_code=fg_item,
         warehouse=fg_wh,
-        posting_date=doc.get("date"),
         voucher_type="Work Order",
         voucher_no=doc.name,
-        qty_change=qty_to_make,
+        qty=qty_to_make,
         tenant_id=tenant_id
     )
     db.add(sle_fg)
+    update_bin(db, sle_fg.item_code, sle_fg.warehouse, sle_fg.qty, tenant_id)
     print(f"🏗️ FG Produced: {fg_item} (+{qty_to_make})")
 
 def post_purchase_receipt_to_stock(doc: BaseDocument, db: Session, tenant_id: int):
@@ -184,16 +182,16 @@ def post_purchase_receipt_to_stock(doc: BaseDocument, db: Session, tenant_id: in
                 prod.cost = round(new_val, 4)
                 prod.stock = old_qty + new_qty # Update stock count in Product table too
                 
-        sle = StockLedgerEntry(
+        sle = StockLedger(
             item_code=item.get("item_code"),
             warehouse=warehouse,
-            posting_date=doc.get("date"),
             voucher_type="Purchase Receipt",
             voucher_no=doc.name,
-            qty_change=item.get("qty") or 0, # Increase stock
+            qty=item.get("qty") or 0, # Increase stock
             tenant_id=tenant_id
         )
         db.add(sle)
+        update_bin(db, sle.item_code, sle.warehouse, sle.qty, tenant_id)
         print(f"📥 Stock IN: {item.get('item_code')} increased by {item.get('qty')} (Valuation Updated)")
 
 def post_purchase_invoice_to_gl(doc: BaseDocument, db: Session, tenant_id: int):
@@ -202,27 +200,27 @@ def post_purchase_invoice_to_gl(doc: BaseDocument, db: Session, tenant_id: int):
     vendor = doc.get("vendor") or "Unknown"
     
     # 1. Debit Entry (Stock/Expense Assets)
-    debit_entry = GLEntry(
+    debit_entry = LedgerEntry(
         account="Stock Assets",
-        posting_date=doc.get("date"),
+        date=doc.get("date"),
         voucher_type="Purchase Invoice",
         voucher_no=doc.name,
         debit=grand_total,
         credit=0.0,
-        remarks=f"Purchase from {vendor}",
+        description=f"Purchase from {vendor}",
         tenant_id=tenant_id
     )
     db.add(debit_entry)
     
     # 2. Credit Entry (Accounts Payable)
-    credit_entry = GLEntry(
+    credit_entry = LedgerEntry(
         account="Trade Payable",
-        posting_date=doc.get("date"),
+        date=doc.get("date"),
         voucher_type="Purchase Invoice",
         voucher_no=doc.name,
         debit=0.0,
         credit=grand_total,
-        remarks=f"Purchase from {vendor}",
+        description=f"Purchase from {vendor}",
         tenant_id=tenant_id
     )
     db.add(credit_entry)
@@ -239,27 +237,27 @@ def post_salary_slip_to_gl(doc: BaseDocument, db: Session, tenant_id: int):
     emp_name = doc.get("employee_name") or "Employee"
     
     # 1. Debit Entry (Salary Expense)
-    debit_entry = GLEntry(
+    debit_entry = LedgerEntry(
         account="Salary Expense",
-        posting_date=doc.get("posting_date"),
+        date=doc.get("posting_date"),
         voucher_type="Salary Slip",
         voucher_no=doc.name,
         debit=net_pay,
         credit=0.0,
-        remarks=f"Salary for {emp_name}",
+        description=f"Salary for {emp_name}",
         tenant_id=tenant_id
     )
     db.add(debit_entry)
     
     # 2. Credit Entry (Bank/Payable)
-    credit_entry = GLEntry(
+    credit_entry = LedgerEntry(
         account="Cash / Bank",
-        posting_date=doc.get("posting_date"),
+        date=doc.get("posting_date"),
         voucher_type="Salary Slip",
         voucher_no=doc.name,
         debit=0.0,
         credit=net_pay,
-        remarks=f"Salary for {emp_name}",
+        description=f"Salary for {emp_name}",
         tenant_id=tenant_id
     )
     db.add(credit_entry)
@@ -271,21 +269,32 @@ def post_salary_slip_to_gl(doc: BaseDocument, db: Session, tenant_id: int):
     print(f"💼 Payroll POST: {emp_name} salary posted.")
 
 def post_sales_order_to_stock(doc: BaseDocument, db: Session, tenant_id: int):
-    """Sales Pipeline (Point 31): Reserve stock on Sales Order submission."""
+    """Sales Pipeline: Reserve stock on Sales Order submission."""
     items = doc.get("items") or []
-    warehouse = doc.get("warehouse") # might need a default if missing
+    warehouse = doc.get("warehouse")
     
     for item in items:
-        # We don't reduce physical stock, we create a 'Reserved' record
-        sle = StockLedgerEntry(
-            item_code=item.get("item_code"),
-            warehouse=warehouse,
-            posting_date=doc.get("date"),
-            voucher_type="Sales Order",
-            voucher_no=doc.name,
-            qty_change=0, # No physical change
-            # custom flag or separate table for Reserved would be better, but we'll log it as a comment for now
-            tenant_id=tenant_id
-        )
-        db.add(sle)
+        update_bin(db, item.get("item_code"), warehouse, 0, tenant_id, reserved_qty=item.get("qty") or 0)
         print(f"📦 Stock Reserved: {item.get('item_code')} (Qty: {item.get('qty')}) for Sales Order {doc.name}.")
+
+def update_bin(db: Session, item_code: str, warehouse: str, qty_change: float, tenant_id: int, reserved_qty: float = 0):
+    """Core logic to maintain live Warehouse-wise balances (Bin table)."""
+    if not warehouse or not item_code: return
+    
+    bin_record = db.query(Bin).filter_by(item_code=item_code, warehouse=warehouse, tenant_id=tenant_id).first()
+    if not bin_record:
+        bin_record = Bin(item_code=item_code, warehouse=warehouse, actual_qty=0, reserved_qty=0, tenant_id=tenant_id)
+        db.add(bin_record)
+    
+    bin_record.actual_qty += qty_change
+    bin_record.reserved_qty += reserved_qty
+    bin_record.projected_qty = bin_record.actual_qty - bin_record.reserved_qty
+    
+    db.flush() # Ensure this bin change is visible to the sum query below
+    
+    # Also sync to Product table (if it's the primary warehouse)
+    prod = db.query(Product).filter_by(sku=item_code, tenant_id=tenant_id).first()
+    if prod:
+        # Sum total stock across ALL warehouses for the Product global count
+        total = db.query(func.sum(Bin.actual_qty)).filter_by(item_code=item_code, tenant_id=tenant_id).scalar() or 0
+        prod.stock = total

@@ -63,6 +63,12 @@
       "fieldtype": "select",
       "options": "true,false",
       "default": "true"
+    },
+    {
+      "name": "warehouse",
+      "label": "Primary Warehouse",
+      "fieldtype": "link",
+      "options": "Warehouse"
     }
   ]
 }

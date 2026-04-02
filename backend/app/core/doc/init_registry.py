@@ -23,6 +23,8 @@ def init_system_registry():
     # Stock
     register_with_meta("Product", Product)
     register_with_meta("Warehouse", Warehouse)
+    register_with_meta("Bin", BaseDocument)
+    register_with_meta("StockLedger", BaseDocument)
 
     # Sales
     register_with_meta("Sales Invoice", SalesInvoice)
