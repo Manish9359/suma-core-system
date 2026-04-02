@@ -8,11 +8,8 @@ import { AppLayout } from "@/components/AppLayout";
 import Dashboard from "./pages/Dashboard";
 import CRMPage from "./pages/CRMPage";
 import SalesPage from "./pages/SalesPage";
-import SalesOrderPage from "./pages/SalesOrderPage";
 import InventoryPage from "./pages/InventoryPage";
-import WarehousePage from "./pages/WarehousePage";
 import PurchasingPage from "./pages/PurchasingPage";
-import SupplierPage from "./pages/SupplierPage";
 import ManufacturingPage from "./pages/ManufacturingPage";
 import AccountingPage from "./pages/AccountingPage";
 import HRPage from "./pages/HRPage";
@@ -22,14 +19,20 @@ import AMCPage from "./pages/AMCPage";
 import InstallationsPage from "./pages/InstallationsPage";
 import ReportsPage from "./pages/ReportsPage";
 import SettingsPage from "./pages/SettingsPage";
-import OpportunitiesPage from "./pages/OpportunitiesPage";
-import QuotationsPage from "./pages/QuotationsPage";
 import LoginPage from "./pages/LoginPage";
 import NotFound from "./pages/NotFound";
 import InvoicePrint from "./pages/InvoicePrint";
 import { Loader2 } from "lucide-react";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      refetchOnWindowFocus: false,
+      staleTime: 30000,
+    },
+  },
+});
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth();
@@ -37,7 +40,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-accent" />
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -55,7 +58,7 @@ function AppRoutes() {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-accent" />
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
   }
@@ -67,15 +70,9 @@ function AppRoutes() {
       <Route path="/print/:type/:id" element={<InvoicePrint />} />
       <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
       <Route path="/crm" element={<ProtectedRoute><CRMPage /></ProtectedRoute>} />
-      <Route path="/leads" element={<Navigate to="/crm" replace />} />
-      <Route path="/opportunities" element={<ProtectedRoute><OpportunitiesPage /></ProtectedRoute>} />
-      <Route path="/quotations" element={<ProtectedRoute><QuotationsPage /></ProtectedRoute>} />
       <Route path="/sales" element={<ProtectedRoute><SalesPage /></ProtectedRoute>} />
-      <Route path="/sales/orders" element={<ProtectedRoute><SalesOrderPage /></ProtectedRoute>} />
       <Route path="/inventory" element={<ProtectedRoute><InventoryPage /></ProtectedRoute>} />
-      <Route path="/warehouses" element={<ProtectedRoute><WarehousePage /></ProtectedRoute>} />
       <Route path="/purchasing" element={<ProtectedRoute><PurchasingPage /></ProtectedRoute>} />
-      <Route path="/suppliers" element={<ProtectedRoute><SupplierPage /></ProtectedRoute>} />
       <Route path="/manufacturing" element={<ProtectedRoute><ManufacturingPage /></ProtectedRoute>} />
       <Route path="/accounting" element={<ProtectedRoute><AccountingPage /></ProtectedRoute>} />
       <Route path="/hr" element={<ProtectedRoute><HRPage /></ProtectedRoute>} />
