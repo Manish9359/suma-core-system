@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { PlusCircle, Search, Edit, Trash2, FileText, Filter } from "lucide-react";
+import { PlusCircle, Search, Edit, Trash2, FileText, Filter, Printer } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -25,6 +26,14 @@ export default function GenericModulePage({
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const navigate = useNavigate();
+
+  const printableTypes: Record<string, string> = {
+    "Sales Invoice": "invoice",
+    "Quotation": "quotation",
+    "Purchase Order": "purchase_order",
+    "Purchase Receipt": "purchase_receipt",
+  };
 
   // Fetch metadata
   const { data: meta, isLoading: metaLoading, error: metaError, refetch: refetchMeta } = useApiQuery(
@@ -269,6 +278,21 @@ export default function GenericModulePage({
                       ))}
                       <td className="text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex justify-end gap-1">
+                          {printableTypes[doctype] && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-accent"
+                              title="Print / PDF"
+                              onClick={() => {
+                                const id = getRecordId(record);
+                                const type = printableTypes[doctype];
+                                window.open(type === "invoice" ? `/invoice/${id}` : `/print/${type}/${id}`, "_blank");
+                              }}
+                            >
+                              <Printer className="h-4 w-4" />
+                            </Button>
+                          )}
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => { setEditingRecord(record); setModalOpen(true); }}>
                             <Edit className="h-4 w-4" />
                           </Button>
