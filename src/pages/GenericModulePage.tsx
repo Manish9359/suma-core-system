@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { PlusCircle, Search, Edit, Trash2, FileText, Filter } from "lucide-react";
+import { PlusCircle, Search, Edit, Trash2, FileText, Filter, Printer } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
