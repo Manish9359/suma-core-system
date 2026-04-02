@@ -1,11 +1,11 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
 @layer base {
   :root {
-    /* ERPNext V14 Classic Palette */
     --background: 210 20% 98%;
     --foreground: 222 47% 11%;
 
@@ -15,8 +15,8 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
 
-    --primary: 212 100% 48%; /* Frappe Blue */
-    --primary-foreground: 210 40% 98%;
+    --primary: 212 100% 48%;
+    --primary-foreground: 0 0% 100%;
 
     --secondary: 210 20% 95%;
     --secondary-foreground: 222 47% 11%;
@@ -25,10 +25,10 @@
     --muted-foreground: 215 16% 47%;
 
     --accent: 212 100% 48%;
-    --accent-foreground: 210 40% 98%;
+    --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
 
     --border: 214 32% 91%;
     --input: 214 32% 91%;
@@ -36,11 +36,17 @@
 
     --radius: 0.5rem;
 
-    --sidebar-background: 210 20% 98%;
+    --chart-1: 212 100% 48%;
+    --chart-2: 174 60% 40%;
+    --chart-3: 42 100% 50%;
+    --chart-4: 280 65% 60%;
+    --chart-5: 340 75% 55%;
+
+    --sidebar-background: 0 0% 100%;
     --sidebar-foreground: 215 16% 47%;
     --sidebar-primary: 212 100% 48%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 210 20% 94%;
+    --sidebar-accent: 210 20% 96%;
     --sidebar-accent-foreground: 222 47% 11%;
     --sidebar-border: 214 32% 91%;
     --sidebar-ring: 212 100% 48%;
@@ -49,57 +55,51 @@
 
 @layer base {
   * { @apply border-border; }
-  body { 
-    @apply bg-background text-foreground; 
-    font-family: 'Inter', -apple-system, sans-serif;
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   }
 }
 
 @layer components {
-  /* ERPNext "Desk" Page Container */
   .module-page {
-    @apply p-8 max-w-7xl mx-auto space-y-8 animate-in fade-in duration-500;
+    @apply p-6 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-300;
   }
 
-  /* ERPNext HeaderStyle */
   .page-header {
-    @apply flex items-end justify-between border-b pb-6 mb-8 bg-background sticky top-0 z-10;
+    @apply flex items-end justify-between pb-5 mb-2;
   }
 
   .page-title {
-    @apply text-3xl font-extrabold tracking-tight text-foreground;
+    @apply text-2xl font-extrabold tracking-tight text-foreground;
   }
 
-  /* ERPNext Card/Section */
   .kpi-card {
-    @apply bg-white rounded-lg border border-slate-200 p-6 shadow-[0_1px_3px_rgba(0,0,0,0.1)] hover:border-blue-400 transition-all;
+    @apply bg-card rounded-xl border border-border p-5 shadow-sm hover:shadow-md transition-all;
   }
 
-  /* ERPNext List View */
   .data-table {
     @apply w-full border-separate border-spacing-0;
   }
 
   .data-table th {
-    @apply bg-slate-50 text-left text-[11px] font-bold uppercase text-slate-500 px-6 py-4 border-b border-t first:rounded-tl-lg last:rounded-tr-lg;
+    @apply bg-muted/50 text-left text-[10px] font-bold uppercase text-muted-foreground px-5 py-3 border-b first:rounded-tl-lg last:rounded-tr-lg tracking-wider;
   }
 
   .data-table td {
-    @apply px-6 py-4 border-b border-slate-100 text-[13px] bg-white transition-colors group-hover:bg-slate-50;
+    @apply px-5 py-3.5 border-b border-border/50 text-[13px] bg-card transition-colors;
   }
 
-  /* ERPNext Status Badges */
+  .data-table tbody tr:hover td {
+    @apply bg-muted/30;
+  }
+
   .status-badge {
     @apply inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider;
   }
 
   .status-active { @apply bg-emerald-50 text-emerald-700 border border-emerald-200; }
-  .status-warning { @apply bg-orange-50 text-orange-700 border border-orange-200; }
+  .status-warning { @apply bg-amber-50 text-amber-700 border border-amber-200; }
   .status-open { @apply bg-blue-50 text-blue-700 border border-blue-200; }
-  .status-closed { @apply bg-slate-100 text-slate-600 border border-slate-200; }
-
-  /* ERPNext Input Styling */
-  .erp-input {
-    @apply bg-slate-100 border-transparent focus:bg-white focus:border-blue-500 rounded-md transition-all h-9 text-sm;
-  }
+  .status-closed { @apply bg-muted text-muted-foreground border border-border; }
 }
