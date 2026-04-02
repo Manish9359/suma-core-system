@@ -2,11 +2,11 @@
   "name": "Product",
   "module": "Inventory",
   "naming_rule": "Prefix",
-  "naming_prefix": "ITEM-",
+  "naming_prefix": "ITEM-.#####",
   "track_changes": true,
   "fields": [
     {
-      "name": "id",
+      "name": "sku",
       "label": "Item Code",
       "fieldtype": "text",
       "readonly": true,

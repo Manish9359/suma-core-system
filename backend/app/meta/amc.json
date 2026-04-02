@@ -2,7 +2,7 @@
   "name": "AMC",
   "module": "Service",
   "naming_rule": "Prefix",
-  "naming_prefix": "AMC-",
+  "naming_prefix": "AMC-.#####",
   "fields": [
     {
       "name": "id",

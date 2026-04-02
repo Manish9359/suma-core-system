@@ -28,12 +28,11 @@ class DocRegistry:
         import json
         from .meta import DocTypeMetadata
         
-        # Calculate base path for meta/ directory
         # registry.py is in backend/app/core/doc/
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        # go up 3 levels to reach backend/ (the root of backend)
-        root_backend = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
-        meta_path = os.path.join(root_backend, "app", "meta", f"{doctype.lower().replace(' ', '_')}.json")
+        # Go up to backend/app/ (2 levels up)
+        current_dir = os.path.dirname(os.path.abspath(__file__))    # .../backend/app/core/doc
+        app_dir = os.path.dirname(os.path.dirname(current_dir))       # .../backend/app
+        meta_path = os.path.join(app_dir, "meta", f"{doctype.lower().replace(' ', '_')}.json")
 
         
         if not os.path.exists(meta_path):

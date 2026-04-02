@@ -2,7 +2,7 @@
   "name": "Project",
   "module": "Projects",
   "naming_rule": "Prefix",
-  "naming_prefix": "PRJ-",
+  "naming_prefix": "PRJ-.#####",
   "fields": [
     {
       "name": "id",

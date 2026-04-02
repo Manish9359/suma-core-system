@@ -2,7 +2,7 @@
   "name": "Sales Order",
   "module": "Sales",
   "naming_rule": "Prefix",
-  "naming_prefix": "SO-",
+  "naming_prefix": "SO-.#####",
   "workflow_state_field": "status",
   "states": ["Draft", "Confirmed", "In Progress", "Completed"],
   "fields": [

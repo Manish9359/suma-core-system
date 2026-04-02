@@ -2,7 +2,7 @@
   "name": "Installation",
   "module": "Service",
   "naming_rule": "Prefix",
-  "naming_prefix": "INS-",
+  "naming_prefix": "INS-.#####",
   "fields": [
     {
       "name": "id",

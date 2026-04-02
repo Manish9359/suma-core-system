@@ -2,7 +2,7 @@
   "name": "Attendance",
   "module": "HR",
   "naming_rule": "Prefix",
-  "naming_prefix": "ATT-",
+  "naming_prefix": "ATT-.#####",
   "workflow_state_field": "workflow_state",
   "states": ["Draft", "Submitted", "Cancelled"],
   "track_changes": true,

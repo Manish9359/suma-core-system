@@ -2,7 +2,7 @@
   "name": "Employee",
   "module": "HR",
   "naming_rule": "Prefix",
-  "naming_prefix": "EMP-",
+  "naming_prefix": "EMP-.#####",
   "fields": [
     {
       "name": "id",

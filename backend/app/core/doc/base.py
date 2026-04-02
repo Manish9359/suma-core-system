@@ -103,6 +103,7 @@ class BaseDocument:
     def to_dict(self) -> Dict[str, Any]:
         """Convert document content to a dictionary for API/JSON."""
         out = self._data.copy()
-        out["status"] = self._status
+        # Always serialize status as a plain string (not the Enum object)
+        out["status"] = self._status.value if isinstance(self._status, DocumentStatus) else str(self._status)
         out["doctype"] = self.doctype
         return out

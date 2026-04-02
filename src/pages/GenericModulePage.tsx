@@ -129,14 +129,27 @@ export default function GenericModulePage({
   const statusField = fields.find((f) => f.name === "workflow_state" || f.name === "status");
   const hasStatus = !!statusField;
 
+  // Resolve the true primary key of a record — works for both `id` and non-standard PKs like `sku`
+  const getRecordId = (record: any): string | number => {
+    if (record == null) return "";
+    // Prefer explicit `id`, fall back to `sku`, then the first non-null non-object value
+    if (record.id !== undefined && record.id !== null) return record.id;
+    if (record.sku !== undefined && record.sku !== null) return record.sku;
+    const firstVal = Object.values(record).find(
+      (v) => v !== null && v !== undefined && typeof v !== "object"
+    );
+    return (firstVal as string | number) ?? "";
+  };
+
   const filteredRecords = (Array.isArray(records) ? records : []).filter((r) =>
     Object.values(r).some((val) => String(val).toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const handleSave = async (data: any) => {
     try {
-      if (editingRecord?.id) {
-        await api.put(`/api/v1/doc/${doctype}/${editingRecord.id}`, data);
+      const recId = getRecordId(editingRecord);
+      if (editingRecord && recId) {
+        await api.put(`/api/v1/doc/${doctype}/${recId}`, data);
         toast.success(`${doctype} updated`);
       } else {
         await api.post(`/api/v1/doc/${doctype}`, data);
@@ -149,7 +162,7 @@ export default function GenericModulePage({
   };
 
   const handleDelete = async (id: string | number) => {
-    const record = (records || []).find((r: any) => r.id === id);
+    const record = (records || []).find((r: any) => getRecordId(r) === id);
     if (record?.workflow_state === "Submitted" || record?.status === "Submitted") {
       toast.error("Cannot delete a submitted document. Cancel it first.");
       return;
@@ -235,7 +248,7 @@ export default function GenericModulePage({
                 ) : (
                   filteredRecords.map((record: any) => (
                     <tr
-                      key={record.id}
+                      key={getRecordId(record)}
                       className="cursor-pointer hover:bg-muted/40 transition-colors"
                       onClick={() => { setEditingRecord(record); setModalOpen(true); }}
                     >
@@ -259,7 +272,7 @@ export default function GenericModulePage({
                           <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => { setEditingRecord(record); setModalOpen(true); }}>
                             <Edit className="h-4 w-4" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => handleDelete(record.id)}>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={() => handleDelete(getRecordId(record))}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
                         </div>
@@ -276,7 +289,7 @@ export default function GenericModulePage({
       <RecordModal
         open={modalOpen}
         onOpenChange={(v: boolean) => { setModalOpen(v); if (!v) refetchRecords(); }}
-        title={editingRecord?.id ? `${doctype} — ${editingRecord.name || editingRecord.id}` : `New ${doctype}`}
+        title={getRecordId(editingRecord) ? `${doctype} — ${editingRecord.name || getRecordId(editingRecord)}` : `New ${doctype}`}
         fields={fields}
         initialData={editingRecord}
         onChangeData={onRecordChange}

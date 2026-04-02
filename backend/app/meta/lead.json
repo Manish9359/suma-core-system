@@ -2,7 +2,7 @@
   "name": "Lead",
   "module": "CRM",
   "naming_rule": "Prefix",
-  "naming_prefix": "LEAD-",
+  "naming_prefix": "LEAD-.#####",
   "track_changes": true,
   "workflow_state_field": "status",
   "states": ["New", "Contacted", "Qualified", "Proposal", "Converted"],

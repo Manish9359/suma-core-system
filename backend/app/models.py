@@ -89,7 +89,7 @@ class CustomField(Base):
 # --- CRM ---
 class Lead(Base):
     __tablename__ = "leads"
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(String, primary_key=True) # LEAD-0001
     name = Column(String)
     company = Column(String)
     phone = Column(String)
@@ -216,7 +216,7 @@ class Employee(Base):
 
 class Attendance(Base):
     __tablename__ = "attendance"
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = Column(String, primary_key=True) # ATT-0001
     employee_id = Column(String, ForeignKey("employees.id"))
     date = Column(String)
     status = Column(String) # Present, Absent, Half Day

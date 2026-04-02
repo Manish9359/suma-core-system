@@ -4,6 +4,8 @@ from app.database import engine, Base, SessionLocal
 from app.api.router import api_router
 from app.core.doc.init_registry import initialize_registry
 
+from app.core.doc.naming import Series  # noqa: F401 – registers 'series' table with Base.metadata
+
 # 1. Create all tables
 Base.metadata.create_all(bind=engine)
 

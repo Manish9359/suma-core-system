@@ -68,8 +68,7 @@ class DocService:
         return self._to_doc(doctype, record)
 
     def create(self, doctype: str, data: Dict[str, Any]) -> BaseDocument:
-        """Create a new document with full hooks."""
-        # RBAC Check
+        """Create a new document with full hooks and sequential ID support."""
         if self.user and not self.permissions.check_permission(doctype, self.user.role, "create"):
              raise ValueError(f"No create permission for DocType '{doctype}'")
 
@@ -77,54 +76,83 @@ class DocService:
         if not doc_class:
              raise ValueError(f"DocType '{doctype}' not registered.")
              
-        doc = doc_class(data)
-        
-        # --- Handle Naming Series (Auto-Generated Numbers) ---
-        from .naming import NamingSeries
         meta = DocRegistry.get_metadata(doctype)
-        if meta and meta.naming_rule == "Prefix":
-            # If name is not provided or matches the default UUID, regenerate it
-            if not data.get("name") or "-" in data.get("name"): 
-                new_name = NamingSeries.generate(self.db, meta.naming_prefix)
-                if new_name:
-                    doc._data["name"] = new_name
+        model = self._get_model(doctype)
+        pk_col = model.__table__.primary_key.columns.keys()[0]
+        pk_column_obj = model.__table__.primary_key.columns[pk_col]
+        
+        from sqlalchemy import Integer as SAInteger
+        is_int_pk = isinstance(pk_column_obj.type, SAInteger)
 
-        # Hooks
+        doc_data = data.copy()
+
+        # --- Handle Naming Series (Auto-Generated sequential IDs) ---
+        from .naming import NamingSeries
+        if meta and meta.naming_rule == "Prefix" and meta.naming_prefix:
+            # ONLY skip auto-generation if the primary key field was explicitly provided
+            user_provided_id = data.get(pk_col)
+            
+            # If the user's data contains a placeholder or no ID at all, generate one
+            is_placeholder = False
+            if isinstance(user_provided_id, str):
+                is_placeholder = user_provided_id.startswith(f"{doctype}-") or user_provided_id.startswith("Product-")
+            
+            if not user_provided_id or is_placeholder:
+                new_id = NamingSeries.generate(self.db, meta.naming_prefix)
+                if new_id:
+                    doc_data[pk_col] = new_id
+                    # If the logical document name field is 'name', it must also be updated
+                    if pk_col == "name":
+                        # We may have just overwritten a person's name or product name
+                        # But that's intended for pure sequential doctypes.
+                        pass
+                    else:
+                        # For Product (sku is PK), we keep the generated ID in 'sku'
+                        # and keep 'name' (Item Name) as-is from user input
+                        doc_data["name"] = data.get("name") or new_id
+
+        # Initialize document with final IDs
+        doc = doc_class(doc_data)
+        
         doc.before_insert()
         doc.before_save()
         
-        # 1. Store to DB (Mapping to SQLAlchemy model)
-        model = self._get_model(doctype)
-        doc_dict = doc.to_dict() # Includes status
-        
-        kwargs = {"tenant_id": self.tenant_id}
-        kwargs.update(doc_dict)
-        
+        doc_dict = doc.to_dict()
         valid_cols = set(model.__table__.columns.keys())
-        pk_col = model.__table__.primary_key.columns.keys()[0]
-        
-        if pk_col in valid_cols and pk_col not in kwargs:
-             kwargs[pk_col] = doc.name
 
-        final_kwargs = {k: v for k, v in kwargs.items() if k in valid_cols}
-        
+        kwargs = {"tenant_id": self.tenant_id}
+        for k, v in doc_dict.items():
+            if k in valid_cols and k != pk_col:
+                kwargs[k] = v
+
+        if not is_int_pk:
+            # Ensure the primary key column gets the official ID (from naming or user)
+            kwargs[pk_col] = doc_data.get(pk_col) or doc.name
+
+        # Handle custom_data overflow
         if 'custom_data' in valid_cols:
-            custom = {k: v for k, v in kwargs.items() if k not in valid_cols and k != "id"}
+            doc_dict = doc.to_dict() # re-fetch to include doc.name correctly
+            custom = {
+                k: v for k, v in doc_dict.items()
+                if k not in valid_cols and k not in ("id", pk_col, "doctype")
+            }
             if custom:
-                final_kwargs['custom_data'] = custom
-                
-        record = model(**final_kwargs)
+                existing = kwargs.get('custom_data') or {}
+                if isinstance(existing, dict):
+                    existing.update(custom)
+                else:
+                    existing = custom
+                kwargs['custom_data'] = existing
+
+        record = model(**kwargs)
         self.db.add(record)
         
-        # Hooks
         doc.after_insert()
         doc.after_save()
-        
-        # Audit Log
         self._log_activity(doc, "Created")
-        
         self.db.commit()
         return doc
+
 
     def submit(self, doctype: str, name: str):
         """Submit a document with formal Workflow State Machine logic (Point 86)."""

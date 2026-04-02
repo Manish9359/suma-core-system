@@ -2,7 +2,7 @@
   "name": "Purchase Receipt",
   "module": "Buying",
   "naming_rule": "Prefix",
-  "naming_prefix": "GRN-",
+  "naming_prefix": "GRN-.#####",
   "fields": [
     {
       "name": "id",

@@ -2,7 +2,7 @@
   "name": "Payment Entry",
   "module": "Accounting",
   "naming_rule": "Prefix",
-  "naming_prefix": "PAY-",
+  "naming_prefix": "PAY-.#####",
   "fields": [
     {
       "name": "id",

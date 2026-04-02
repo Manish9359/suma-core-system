@@ -2,7 +2,7 @@
   "name": "Purchase Order",
   "module": "Buying",
   "naming_rule": "Prefix",
-  "naming_prefix": "PO-",
+  "naming_prefix": "PO-.#####",
   "workflow_state_field": "status",
   "states": ["Draft", "Sent", "Approved", "Received"],
   "fields": [

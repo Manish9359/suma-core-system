@@ -2,7 +2,7 @@
   "name": "System Service",
   "module": "Service",
   "naming_rule": "Prefix",
-  "naming_prefix": "SVC-",
+  "naming_prefix": "SVC-.#####",
   "fields": [
     {
       "name": "id",

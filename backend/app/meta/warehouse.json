@@ -2,7 +2,7 @@
   "name": "Warehouse",
   "module": "Inventory",
   "naming_rule": "Prefix",
-  "naming_prefix": "WH-",
+  "naming_prefix": "WH-.#####",
   "fields": [
     {
       "name": "id",

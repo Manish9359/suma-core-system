@@ -41,11 +41,12 @@ def seed_data():
             db.add(c)
 
     leads = [
-        Lead(name="Alice Johnson", company="Startup Inc", phone="9876543210", email="alice@startup.com", source="Website", status="New", tenant_id=t_id),
-        Lead(name="Michael Clark", company="Retail Solutions", phone="9123456780", email="michael@retail.com", source="Referral", status="Contacted", tenant_id=t_id)
+        Lead(id="LEAD-TEMP-1", name="Alice Johnson", company="Startup Inc", phone="9876543210", email="alice@startup.com", source="Website", status="New", tenant_id=t_id),
+        Lead(id="LEAD-TEMP-2", name="Michael Clark", company="Retail Solutions", phone="9123456780", email="michael@retail.com", source="Referral", status="Contacted", tenant_id=t_id)
     ]
     for l in leads:
-        db.add(l)
+        if not db.query(Lead).filter_by(id=l.id).first():
+            db.add(l)
 
     print("Seeding Products & Inventory...")
     products = []
