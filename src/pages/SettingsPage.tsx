@@ -145,6 +145,10 @@ export default function SettingsPage() {
           </TabsContent>
         </form>
 
+        <TabsContent value="appearance">
+          <ThemeCard />
+        </TabsContent>
+
         <TabsContent value="notifications">
           <Card className="border-none shadow-md">
             <CardHeader>
