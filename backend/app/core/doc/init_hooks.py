@@ -11,8 +11,10 @@ def init_system_hooks():
     # 1. SALES INVOICE -> ACCOUNTING (GL)
     HookManager.register("Sales Invoice", "on_submit", post_sales_invoice_to_gl)
     
-    # 2. DELIVERY NOTE -> INVENTORY (STOCK)
+    # 2. INVENTORY TRANSFERS & FULFILLMENT (STOCK)
+    from .ledger_hooks import post_delivery_note_to_stock, post_stock_entry_to_stock
     HookManager.register("Delivery Note", "on_submit", post_delivery_note_to_stock)
+    HookManager.register("Stock Entry", "on_submit", post_stock_entry_to_stock)
     
     # 3. WORK ORDER -> MANUFACTURING (STOCK)
     from .ledger_hooks import post_work_order_to_stock

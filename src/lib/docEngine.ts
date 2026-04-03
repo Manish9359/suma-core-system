@@ -8,7 +8,7 @@ export class NamingSeries {
   static generate(pattern: string, currentCount: number = 0): string {
     if (!pattern) return "";
     const now = new Date();
-    let res = pattern
+    const res = pattern
       .replace(".YYYY.", String(now.getFullYear()))
       .replace(".MM.", String(now.getMonth() + 1).padStart(2, "0"))
       .replace(".DD.", String(now.getDate()).padStart(2, "0"));
@@ -25,7 +25,7 @@ export class NamingSeries {
   static getPrefix(pattern: string): string {
     if (!pattern) return "";
     const now = new Date();
-    let res = pattern
+    const res = pattern
       .replace(".YYYY.", String(now.getFullYear()))
       .replace(".MM.", String(now.getMonth() + 1).padStart(2, "0"))
       .replace(".DD.", String(now.getDate()).padStart(2, "0"));

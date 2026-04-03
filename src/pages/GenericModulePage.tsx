@@ -59,7 +59,7 @@ export default function GenericModulePage({
 
       if (typeof options === "string" && !options.includes(",")) {
         try {
-          let targetDocType = (options.startsWith("Link:") ? options.split(":")[1] : options).trim();
+          const targetDocType = (options.startsWith("Link:") ? options.split(":")[1] : options).trim();
           if (/^[A-Z]/.test(targetDocType) && type !== "table") {
             const targetDocs = await api.get<any[]>(`/api/v1/doc/${encodeURIComponent(targetDocType)}`);
             if (Array.isArray(targetDocs)) {
@@ -91,7 +91,7 @@ export default function GenericModulePage({
       const resolved = await Promise.all(
         currentRawFields.map(async (f: any) => {
           const type = (f.fieldtype?.toLowerCase() || f.type?.toLowerCase() || "text").trim();
-          let options = await resolveFieldOptions(f);
+          const options = await resolveFieldOptions(f);
           let columns: any[] = [];
 
           if (type === "table") {

@@ -290,6 +290,9 @@ def update_bin(db: Session, item_code: str, warehouse: str, qty_change: float, t
     bin_record.reserved_qty += reserved_qty
     bin_record.projected_qty = bin_record.actual_qty - bin_record.reserved_qty
     
+    if bin_record.actual_qty < 0:
+        raise ValueError(f"Insufficient stock for Product '{item_code}' in Warehouse '{warehouse}'. Physical balance cannot be negative. Required: {abs(qty_change)}, Available: {bin_record.actual_qty - qty_change}")
+    
     db.flush() # Ensure this bin change is visible to the sum query below
     
     # Also sync to Product table (if it's the primary warehouse)
@@ -298,3 +301,26 @@ def update_bin(db: Session, item_code: str, warehouse: str, qty_change: float, t
         # Sum total stock across ALL warehouses for the Product global count
         total = db.query(func.sum(Bin.actual_qty)).filter_by(item_code=item_code, tenant_id=tenant_id).scalar() or 0
         prod.stock = total
+
+def post_stock_entry_to_stock(doc: BaseDocument, db: Session, tenant_id: int):
+    """Processes manual Stock Entries to increment or decrement Warehouse Bins (Manual adjustment module)."""
+    purpose = doc.get("purpose")
+    items = doc.get("items") or []
+    
+    for item in items:
+        item_code = item.get("item_code")
+        qty = item.get("qty") or 0
+        if not item_code or qty <= 0: continue
+        
+        s_warehouse = item.get("s_warehouse")
+        t_warehouse = item.get("t_warehouse")
+        
+        if purpose in ["Material Issue", "Material Transfer"] and s_warehouse:
+            sle_out = StockLedger(item_code=item_code, warehouse=s_warehouse, voucher_type="Stock Entry", voucher_no=doc.name, qty=-qty, tenant_id=tenant_id)
+            db.add(sle_out)
+            update_bin(db, item_code, s_warehouse, -qty, tenant_id)
+            
+        if purpose in ["Material Receipt", "Material Transfer"] and t_warehouse:
+            sle_in = StockLedger(item_code=item_code, warehouse=t_warehouse, voucher_type="Stock Entry", voucher_no=doc.name, qty=qty, tenant_id=tenant_id)
+            db.add(sle_in)
+            update_bin(db, item_code, t_warehouse, qty, tenant_id)

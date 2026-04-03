@@ -1,0 +1,56 @@
+{
+  "doctype": "Supplier",
+  "is_submittable": false,
+  "naming_rule": "Prefix",
+  "naming_prefix": "SUPP-",
+  "fields": [
+    {
+      "name": "name",
+      "label": "Supplier Name",
+      "fieldtype": "Data",
+      "required": true,
+      "in_list_view": true
+    },
+    {
+      "name": "category",
+      "label": "Supplier Category",
+      "fieldtype": "Select",
+      "options": "Distributor\nManufacturer\nWholesaler\nServices\nOther",
+      "in_list_view": true
+    },
+    {
+      "name": "contact",
+      "label": "Primary Contact",
+      "fieldtype": "Data",
+      "in_list_view": true
+    },
+    {
+      "name": "address",
+      "label": "Billing / Shipping Address",
+      "fieldtype": "Text"
+    }
+  ],
+  "permissions": [
+    {
+      "role": "Admin",
+      "can_read": true,
+      "can_create": true,
+      "can_write": true,
+      "can_delete": true
+    },
+    {
+      "role": "Accountant",
+      "can_read": true,
+      "can_create": true,
+      "can_write": true,
+      "can_delete": false
+    },
+    {
+      "role": "Warehouse Manager",
+      "can_read": true,
+      "can_create": true,
+      "can_write": false,
+      "can_delete": false
+    }
+  ]
+}

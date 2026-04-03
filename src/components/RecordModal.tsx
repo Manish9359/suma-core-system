@@ -104,8 +104,8 @@ function DynamicTableInput({
   };
 
   const updateRow = (idx: number, colName: string, val: any) => {
-    let updated = [...rows];
-    let newRow = { ...updated[idx], [colName]: val };
+    const updated = [...rows];
+    const newRow = { ...updated[idx], [colName]: val };
 
     // Row-level fetch_from (e.g. item_code -> rate, stock)
     field.columns?.forEach((c) => {

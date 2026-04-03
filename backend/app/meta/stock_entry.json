@@ -1,0 +1,69 @@
+{
+  "doctype": "Stock Entry",
+  "is_submittable": true,
+  "naming_rule": "Prefix",
+  "naming_prefix": "SE-",
+  "fields": [
+    {
+      "name": "purpose",
+      "label": "Stock Entry Purpose",
+      "fieldtype": "Select",
+      "options": "Material Receipt\nMaterial Issue\nMaterial Transfer",
+      "required": true,
+      "in_list_view": true
+    },
+    {
+      "name": "date",
+      "label": "Posting Date",
+      "fieldtype": "Date",
+      "required": true,
+      "in_list_view": true
+    },
+    {
+      "name": "items",
+      "label": "Stock Items",
+      "fieldtype": "Table",
+      "options": "Stock Entry Item"
+    },
+    {
+      "name": "total_qty",
+      "label": "Total Quantity",
+      "fieldtype": "Float",
+      "readonly": true
+    },
+    {
+      "name": "total_amount",
+      "label": "Total Amount",
+      "fieldtype": "Float",
+      "readonly": true
+    },
+    {
+      "name": "status",
+      "label": "Status",
+      "fieldtype": "Select",
+      "options": "Draft\nSubmitted\nCancelled",
+      "readonly": true,
+      "in_list_view": true
+    }
+  ],
+  "permissions": [
+    {
+      "role": "Admin",
+      "can_read": true,
+      "can_create": true,
+      "can_write": true,
+      "can_delete": true,
+      "can_submit": true,
+      "can_cancel": true
+    },
+    {
+      "role": "Warehouse Manager",
+      "can_read": true,
+      "can_create": true,
+      "can_write": true,
+      "can_delete": false,
+      "can_submit": true,
+      "can_cancel": true
+    }
+  ]
+}

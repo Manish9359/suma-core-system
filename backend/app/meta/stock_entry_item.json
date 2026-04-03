@@ -1,0 +1,47 @@
+{
+  "doctype": "Stock Entry Item",
+  "is_child": true,
+  "fields": [
+    {
+      "name": "item_code",
+      "label": "Item Code",
+      "fieldtype": "Link",
+      "options": "Product",
+      "required": true,
+      "in_list_view": true
+    },
+    {
+      "name": "qty",
+      "label": "Quantity",
+      "fieldtype": "Float",
+      "required": true,
+      "in_list_view": true
+    },
+    {
+      "name": "s_warehouse",
+      "label": "Source Warehouse",
+      "fieldtype": "Link",
+      "options": "Warehouse",
+      "in_list_view": true
+    },
+    {
+      "name": "t_warehouse",
+      "label": "Target Warehouse",
+      "fieldtype": "Link",
+      "options": "Warehouse",
+      "in_list_view": true
+    },
+    {
+      "name": "rate",
+      "label": "Valuation Rate",
+      "fieldtype": "Float"
+    },
+    {
+      "name": "amount",
+      "label": "Amount",
+      "fieldtype": "Float",
+      "readonly": true
+    }
+  ],
+  "permissions": []
+}
