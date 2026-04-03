@@ -1,0 +1,54 @@
+[
+  {
+    "name": "id",
+    "fetch_from": null
+  },
+  {
+    "name": "customer",
+    "fetch_from": null
+  },
+  {
+    "name": "customer_name",
+    "fetch_from": null
+  },
+  {
+    "name": "customer_address",
+    "fetch_from": null
+  },
+  {
+    "name": "email",
+    "fetch_from": null
+  },
+  {
+    "name": "phone",
+    "fetch_from": null
+  },
+  {
+    "name": "date",
+    "fetch_from": null
+  },
+  {
+    "name": "items",
+    "fetch_from": null
+  },
+  {
+    "name": "gst_rate",
+    "fetch_from": null
+  },
+  {
+    "name": "amount",
+    "fetch_from": null
+  },
+  {
+    "name": "tax",
+    "fetch_from": null
+  },
+  {
+    "name": "grand_total",
+    "fetch_from": null
+  },
+  {
+    "name": "workflow_state",
+    "fetch_from": null
+  }
+]

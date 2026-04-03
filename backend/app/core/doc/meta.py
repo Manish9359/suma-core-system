@@ -13,6 +13,7 @@ class DocField(BaseModel):
     hidden: bool = False
     readonly: bool = Field(default=False, validation_alias=AliasChoices("readonly", "disabled"))
     default: Any = None
+    fetch_from: Optional[str] = None
     columns: Optional[List['DocField']] = None # Recursive columns for 'Table' field types
 
 class DocTypeMetadata(BaseModel):

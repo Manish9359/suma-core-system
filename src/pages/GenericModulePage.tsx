@@ -70,7 +70,7 @@ export default function GenericModulePage({
                             Object.values(d).find(v => v !== null && typeof v !== 'object') || '';
 
                 return {
-                  label: d.name || d.company || d.item_name || d.customer_name || String(val),
+                  label: d.company || d.item_name || d.customer_name || d.full_name || d.name || String(val),
                   value: val,
                   full_data: d,
                 };
