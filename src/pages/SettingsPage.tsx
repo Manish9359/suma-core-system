@@ -4,16 +4,70 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Save, Building2, Bell, Shield, CreditCard } from "lucide-react";
+import { Save, Building2, Bell, Shield, CreditCard, Sun, Moon, Monitor, Palette } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { Switch } from "@/components/ui/switch";
 import { api, authApi, systemApi } from "@/lib/api";
 import { RecordModal, RecordField } from "@/components/RecordModal";
 import { Badge } from "@/components/ui/badge";
 import { UserCog, Trash2, Edit, ShieldCheck, PlusCircle } from "lucide-react";
 import { LoadingState, ErrorState } from "@/components/LoadingState";
+
+type ThemeMode = "light" | "dark" | "system";
+
+function ThemeCard() {
+  const [theme, setTheme] = useState<ThemeMode>(() => (localStorage.getItem("theme") as ThemeMode) || "light");
+
+  useEffect(() => {
+    const root = document.documentElement;
+    localStorage.setItem("theme", theme);
+    if (theme === "system") {
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      root.classList.toggle("dark", prefersDark);
+    } else {
+      root.classList.toggle("dark", theme === "dark");
+    }
+  }, [theme]);
+
+  const modes: { value: ThemeMode; label: string; icon: React.ReactNode; desc: string }[] = [
+    { value: "light", label: "Light", icon: <Sun className="h-5 w-5" />, desc: "Clean bright interface" },
+    { value: "dark", label: "Dark", icon: <Moon className="h-5 w-5" />, desc: "Easy on the eyes" },
+    { value: "system", label: "System", icon: <Monitor className="h-5 w-5" />, desc: "Match OS preference" },
+  ];
+
+  return (
+    <Card className="border-none shadow-md">
+      <CardHeader>
+        <CardTitle>Appearance</CardTitle>
+        <CardDescription>Customize how SumaERP looks on your device.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-3 gap-4">
+          {modes.map((m) => (
+            <button
+              key={m.value}
+              onClick={() => { setTheme(m.value); toast.success(`Theme set to ${m.label}`); }}
+              className={`flex flex-col items-center gap-2 p-5 rounded-xl border-2 transition-all ${
+                theme === m.value
+                  ? "border-primary bg-primary/5 shadow-md"
+                  : "border-border hover:border-primary/40 hover:bg-muted/50"
+              }`}
+            >
+              <div className={`p-3 rounded-full ${theme === m.value ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                {m.icon}
+              </div>
+              <span className="font-bold text-sm">{m.label}</span>
+              <span className="text-[11px] text-muted-foreground">{m.desc}</span>
+            </button>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function SettingsPage() {
   const { user } = useAuth();
@@ -61,9 +115,10 @@ export default function SettingsPage() {
       </div>
 
       <Tabs defaultValue="company" className="space-y-6">
-        <TabsList className={`grid ${user?.role === "Admin" ? 'grid-cols-5' : 'grid-cols-3'} bg-muted/50 border shadow-sm`}>
+        <TabsList className={`grid ${user?.role === "Admin" ? 'grid-cols-6' : 'grid-cols-4'} bg-muted/50 border shadow-sm`}>
           <TabsTrigger value="company" className="gap-2"><Building2 className="h-4 w-4" /> Company</TabsTrigger>
           {user?.role === "Admin" && <TabsTrigger value="users" className="gap-2"><UserCog className="h-4 w-4" /> Users</TabsTrigger>}
+          <TabsTrigger value="appearance" className="gap-2"><Palette className="h-4 w-4" /> Theme</TabsTrigger>
           <TabsTrigger value="notifications" className="gap-2"><Bell className="h-4 w-4" /> Alerts</TabsTrigger>
           <TabsTrigger value="bank" className="gap-2"><CreditCard className="h-4 w-4" /> Bank</TabsTrigger>
           {user?.role === "Admin" && <TabsTrigger value="security" className="gap-2"><Shield className="h-4 w-4" /> Security</TabsTrigger>}
@@ -142,6 +197,10 @@ export default function SettingsPage() {
             </Card>
           </TabsContent>
         </form>
+
+        <TabsContent value="appearance">
+          <ThemeCard />
+        </TabsContent>
 
         <TabsContent value="notifications">
           <Card className="border-none shadow-md">
