@@ -250,11 +250,28 @@ export default function InvoicePrint() {
           </div>
         </div>
 
-        {/* Amount in words */}
-        <p className="text-[11px] mb-6">
-          <span className="font-bold">Amount in Words:</span>{" "}
-          <span className="underline">{amountToWords(grandTotal)}</span>
-        </p>
+        {/* Amount in words + QR Code */}
+        <div className="flex items-end justify-between mb-6">
+          <p className="text-[11px] flex-1">
+            <span className="font-bold">Amount in Words:</span>{" "}
+            <span className="underline">{amountToWords(grandTotal)}</span>
+          </p>
+          <div className="shrink-0 ml-4 flex flex-col items-center">
+            <QRCodeSVG
+              value={JSON.stringify({
+                invoice: data.id,
+                date: data.date,
+                customer: customerName,
+                total: grandTotal,
+                gstin: co?.gstin || "",
+                company: companyName,
+              })}
+              size={80}
+              level="M"
+            />
+            <p className="text-[8px] text-gray-400 mt-1">Scan for details</p>
+          </div>
+        </div>
 
         {/* Page 1 footer */}
         <div className="border-t border-gray-300 pt-2 mt-auto">
