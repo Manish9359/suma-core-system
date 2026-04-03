@@ -5,6 +5,7 @@ import { LoadingState, ErrorState } from "@/components/LoadingState";
 import { format } from "date-fns";
 import { Printer } from "lucide-react";
 import { amountToWords } from "@/lib/amountToWords";
+import { QRCodeSVG } from "qrcode.react";
 
 /* ─── helpers ─── */
 const inr = (v: number) => v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
