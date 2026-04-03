@@ -97,8 +97,27 @@ class BaseDocument:
 
     def validate(self):
         """Override this to add custom validation logic."""
-        # TODO: Implement metadata-based validation (field types, required, etc.)
-        pass
+        from .registry import DocRegistry
+        meta = DocRegistry.get_metadata(self.doctype)
+        if not meta:
+            return
+            
+        for field in meta.fields:
+            # 1. Check Mandatory Fields
+            if field.required:
+                val = self._data.get(field.name)
+                is_empty = val is None or (isinstance(val, str) and not val.strip())
+                if is_empty:
+                    raise ValueError(f"Mandatory field missing: {field.label or field.name}")
+                    
+            # 2. Basic Type Validation
+            if field.fieldtype.lower() in ("int", "float", "money", "number") and field.name in self._data:
+                val = self._data[field.name]
+                if val is not None and val != "":
+                    try:
+                        float(val)
+                    except ValueError:
+                        raise ValueError(f"Field '{field.label or field.name}' expects a numeric value.")
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert document content to a dictionary for API/JSON."""
