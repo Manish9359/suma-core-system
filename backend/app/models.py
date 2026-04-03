@@ -104,6 +104,8 @@ class Customer(Base):
     id = Column(String, primary_key=True) # CUST-0001
     company = Column(String, nullable=False)
     contact = Column(String)
+    email = Column(String)
+    phone = Column(String)
     address = Column(String)
     gst = Column(String)
     notes = Column(Text)
@@ -142,12 +144,16 @@ class Invoice(Base):
     __tablename__ = "invoices"
     id = Column(String, primary_key=True) # INV-2026-001
     customer = Column(String)
+    customer_name = Column(String)
+    customer_address = Column(String)
+    email = Column(String)
+    phone = Column(String)
     date = Column(String)
     amount = Column(Float, default=0.0)
     tax = Column(Float, default=0.0)
     grand_total = Column(Float, default=0.0)
-    status = Column(String, default="Draft") # Draft, Submitted, Paid, Overdue
-    workflow_state = Column(String, default="Draft") # Draft, Pending Approval, Approved
+    status = Column(String, default="Draft")
+    workflow_state = Column(String, default="Draft")
     custom_data = Column(JSON, default={})
     tenant_id = Column(Integer, ForeignKey("tenants.id"))
 

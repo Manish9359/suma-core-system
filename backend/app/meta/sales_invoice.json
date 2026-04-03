@@ -36,6 +36,20 @@
       "readonly": true
     },
     {
+      "name": "email",
+      "label": "Primary Email",
+      "fieldtype": "text",
+      "fetch_from": "customer.email",
+      "readonly": true
+    },
+    {
+      "name": "phone",
+      "label": "Phone Number",
+      "fieldtype": "text",
+      "fetch_from": "customer.phone",
+      "readonly": true
+    },
+    {
       "name": "date",
       "label": "Invoice Date",
       "fieldtype": "date",

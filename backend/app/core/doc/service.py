@@ -359,7 +359,13 @@ class DocService:
         """Convert a DB record to a Document object."""
         doc_class = DocRegistry.get_class(doctype) or BaseDocument
         # Extract data from SQLAlchemy object
-        data = {c.name: getattr(db_record, c.name) for c in db_record.__table__.columns}
+        data = {c.name: getattr(db_record, c.name) for c in db_record.__table__.columns if c.name != "custom_data"}
+        
+        # Merge custom_data if it exists
+        custom = getattr(db_record, "custom_data", {})
+        if isinstance(custom, dict):
+            data.update(custom)
+            
         return doc_class(data)
 
     def _save_to_db(self, doc: BaseDocument):

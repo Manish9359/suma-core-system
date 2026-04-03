@@ -104,8 +104,28 @@ function DynamicTableInput({
   };
 
   const updateRow = (idx: number, colName: string, val: any) => {
-    const updated = [...rows];
-    updated[idx] = { ...updated[idx], [colName]: val };
+    let updated = [...rows];
+    let newRow = { ...updated[idx], [colName]: val };
+
+    // Row-level fetch_from (e.g. item_code -> rate, stock)
+    field.columns?.forEach((c) => {
+      if (c.fetch_from && c.fetch_from.startsWith(`${colName}.`)) {
+        const sourceAttr = c.fetch_from.split(".")[1];
+        const sourceCol = field.columns?.find((sc) => sc.name === colName);
+          if (sourceCol && Array.isArray(sourceCol.options)) {
+            const selectedOpt = sourceCol.options.find((opt: any) => String(opt.value) === String(val));
+            console.log(`[Auto-Fill] Found Option:`, selectedOpt, "for value:", val);
+            if (selectedOpt?.full_data) {
+              console.log(`[Auto-Fill] Row ${idx} : Setting ${c.name} to`, selectedOpt.full_data[sourceAttr]);
+              newRow[c.name] = selectedOpt.full_data[sourceAttr] || "";
+            } else {
+              console.warn(`[Auto-Fill] Row ${idx} : Missing full_data in option for`, c.name);
+            }
+          }
+      }
+    });
+
+    updated[idx] = newRow;
     setRows(updated);
     onChange(updated);
   };
@@ -288,6 +308,7 @@ export function RecordModal({
   };
 
   const handleFieldChange = useCallback((name: string, value: any) => {
+    console.log(`[handleFieldChange] Triggered for: ${name} = ${value}`);
     setFormData((prev: any) => {
       let newData = { ...prev, [name]: value };
 
@@ -296,11 +317,18 @@ export function RecordModal({
         if (f.fetch_from && f.fetch_from.startsWith(`${name}.`)) {
           const sourceAttr = f.fetch_from.split(".")[1];
           const sourceField = fields.find((sf: RecordField) => sf.name === name);
+          console.log(`[Auto-Fill Debug] Field ${f.name} wants ${sourceAttr} from ${name}. Found sourceField:`, !!sourceField);
           if (sourceField && Array.isArray(sourceField.options)) {
-            const selectedOpt = sourceField.options.find((opt: any) => opt.value === value);
+            const selectedOpt = sourceField.options.find((opt: any) => String(opt.value) === String(value));
+            console.log(`[Auto-Fill] Found Customer Option:`, selectedOpt, "for:", value);
             if (selectedOpt?.full_data) {
+              console.log(`[Auto-Fill] Setting ${f.name} to`, selectedOpt.full_data[sourceAttr]);
               newData[f.name] = selectedOpt.full_data[sourceAttr] || "";
+            } else {
+              console.warn(`[Auto-Fill] No full_data for option:`, selectedOpt);
             }
+          } else {
+            console.warn(`[Auto-Fill Debug] sourceField has no valid options array.`, sourceField);
           }
         }
       });

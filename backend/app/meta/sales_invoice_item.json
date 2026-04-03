@@ -11,6 +11,13 @@
       "required": true
     },
     {
+      "name": "stock_available",
+      "label": "Stock Avail",
+      "fieldtype": "float",
+      "fetch_from": "item_code.stock",
+      "readonly": true
+    },
+    {
       "name": "qty",
       "label": "Quantity",
       "fieldtype": "int",
@@ -21,6 +28,7 @@
       "name": "rate",
       "label": "Rate (₹)",
       "fieldtype": "float",
+      "fetch_from": "item_code.sell",
       "required": true
     },
     {

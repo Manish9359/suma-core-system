@@ -63,11 +63,18 @@ export default function GenericModulePage({
           if (/^[A-Z]/.test(targetDocType) && type !== "table") {
             const targetDocs = await api.get<any[]>(`/api/v1/doc/${encodeURIComponent(targetDocType)}`);
             if (Array.isArray(targetDocs)) {
-              options = targetDocs.map((d) => ({
-                label: d.customer_name || d.company || d.name || d.id,
-                value: d.id,
-                full_data: d,
-              }));
+              options = targetDocs.map((d) => {
+                // Determine the primary identifier for the 'value' field (id, sku, etc)
+                const val = d.id !== undefined && d.id !== null ? d.id : 
+                            d.sku !== undefined && d.sku !== null ? d.sku : 
+                            Object.values(d).find(v => v !== null && typeof v !== 'object') || '';
+
+                return {
+                  label: d.name || d.company || d.item_name || d.customer_name || String(val),
+                  value: val,
+                  full_data: d,
+                };
+              });
             }
           }
         } catch {
@@ -108,6 +115,7 @@ export default function GenericModulePage({
                     : cf.fieldtype?.toLowerCase() || cf.type?.toLowerCase() || "text",
                 required: !!cf.required,
                 disabled: !!cf.readonly || !!cf.disabled,
+                fetch_from: cf.fetch_from,
                 options: await resolveFieldOptions(cf),
               }))
             );
