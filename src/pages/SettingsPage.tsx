@@ -16,6 +16,59 @@ import { Badge } from "@/components/ui/badge";
 import { UserCog, Trash2, Edit, ShieldCheck, PlusCircle } from "lucide-react";
 import { LoadingState, ErrorState } from "@/components/LoadingState";
 
+type ThemeMode = "light" | "dark" | "system";
+
+function ThemeCard() {
+  const [theme, setTheme] = useState<ThemeMode>(() => (localStorage.getItem("theme") as ThemeMode) || "light");
+
+  useEffect(() => {
+    const root = document.documentElement;
+    localStorage.setItem("theme", theme);
+    if (theme === "system") {
+      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+      root.classList.toggle("dark", prefersDark);
+    } else {
+      root.classList.toggle("dark", theme === "dark");
+    }
+  }, [theme]);
+
+  const modes: { value: ThemeMode; label: string; icon: React.ReactNode; desc: string }[] = [
+    { value: "light", label: "Light", icon: <Sun className="h-5 w-5" />, desc: "Clean bright interface" },
+    { value: "dark", label: "Dark", icon: <Moon className="h-5 w-5" />, desc: "Easy on the eyes" },
+    { value: "system", label: "System", icon: <Monitor className="h-5 w-5" />, desc: "Match OS preference" },
+  ];
+
+  return (
+    <Card className="border-none shadow-md">
+      <CardHeader>
+        <CardTitle>Appearance</CardTitle>
+        <CardDescription>Customize how SumaERP looks on your device.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-3 gap-4">
+          {modes.map((m) => (
+            <button
+              key={m.value}
+              onClick={() => { setTheme(m.value); toast.success(`Theme set to ${m.label}`); }}
+              className={`flex flex-col items-center gap-2 p-5 rounded-xl border-2 transition-all ${
+                theme === m.value
+                  ? "border-primary bg-primary/5 shadow-md"
+                  : "border-border hover:border-primary/40 hover:bg-muted/50"
+              }`}
+            >
+              <div className={`p-3 rounded-full ${theme === m.value ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
+                {m.icon}
+              </div>
+              <span className="font-bold text-sm">{m.label}</span>
+              <span className="text-[11px] text-muted-foreground">{m.desc}</span>
+            </button>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SettingsPage() {
   const { user } = useAuth();
   const [selectedRole, setSelectedRole] = useState<any>(null);
