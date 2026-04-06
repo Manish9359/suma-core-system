@@ -69,6 +69,114 @@ function ThemeCard() {
   );
 }
 
+function DataManagementCard() {
+  const [seeding, setSeeding] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [seedResult, setSeedResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const handleSeed = async () => {
+    if (!confirm("This will populate ALL modules with demo data (Customers, Products, Invoices, etc.). Continue?")) return;
+    setSeeding(true);
+    setSeedResult(null);
+    try {
+      await api.post("/api/v1/system/seed-demo-data", {});
+      setSeedResult({ ok: true, msg: "Demo data seeded successfully! Refresh pages to see data." });
+      toast.success("Demo data seeded across all modules");
+    } catch (e: any) {
+      setSeedResult({ ok: false, msg: e.message || "Seeding failed" });
+      toast.error(e.message || "Seeding failed");
+    } finally {
+      setSeeding(false);
+    }
+  };
+
+  const handleClear = async () => {
+    if (!confirm("⚠️ WARNING: This will DELETE all transactional data (invoices, orders, customers, products, etc.). This cannot be undone! Continue?")) return;
+    setClearing(true);
+    setSeedResult(null);
+    try {
+      await api.post("/api/v1/system/clear-demo-data", {});
+      setSeedResult({ ok: true, msg: "All demo/transactional data cleared." });
+      toast.success("Data cleared successfully");
+    } catch (e: any) {
+      setSeedResult({ ok: false, msg: e.message || "Clear failed" });
+      toast.error(e.message || "Clear failed");
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const modules = [
+    "Customers (8)", "Suppliers (5)", "Products (20)", "Employees (8)",
+    "Leads (5)", "Opportunities (3)", "Quotations (3)", "Sales Orders (3)",
+    "Sales Invoices (3)", "Purchase Orders (3)", "Purchase Receipts (2)",
+    "Projects (3)", "AMC Contracts (3)", "Installations (3)", "Attendance & Salary",
+    "GL Entries", "Stock Ledger", "Payment Entries"
+  ];
+
+  return (
+    <Card className="border-none shadow-md">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Database className="h-5 w-5 text-primary" />
+          Data Management
+        </CardTitle>
+        <CardDescription>Seed demo data across all modules or clear existing data.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Seed Section */}
+        <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 space-y-4">
+          <div className="flex items-start gap-3">
+            <RefreshCw className="h-5 w-5 text-primary mt-0.5" />
+            <div className="flex-1">
+              <h3 className="font-semibold text-sm">Seed Demo Data</h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                Populate all modules with realistic Indian business data for testing. Safe to run multiple times — skips existing records.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {modules.map((m) => (
+              <Badge key={m} variant="secondary" className="text-[10px]">{m}</Badge>
+            ))}
+          </div>
+          <Button onClick={handleSeed} disabled={seeding || clearing} className="gap-2 w-full sm:w-auto">
+            {seeding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Database className="h-4 w-4" />}
+            {seeding ? "Seeding data..." : "Seed Demo Data"}
+          </Button>
+        </div>
+
+        {/* Clear Section */}
+        <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-5 space-y-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-destructive mt-0.5" />
+            <div className="flex-1">
+              <h3 className="font-semibold text-sm text-destructive">Clear All Data</h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                Permanently delete all transactional data. Users, roles, and company settings are preserved.
+              </p>
+            </div>
+          </div>
+          <Button variant="destructive" onClick={handleClear} disabled={seeding || clearing} className="gap-2 w-full sm:w-auto">
+            {clearing ? <Loader2 className="h-4 w-4 animate-spin" /> : <TrashIcon className="h-4 w-4" />}
+            {clearing ? "Clearing data..." : "Clear All Data"}
+          </Button>
+        </div>
+
+        {/* Result */}
+        {seedResult && (
+          <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
+            seedResult.ok ? "bg-green-500/10 text-green-700 dark:text-green-400" : "bg-destructive/10 text-destructive"
+          }`}>
+            {seedResult.ok ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+            {seedResult.msg}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function SettingsPage() {
   const { user } = useAuth();
   const [selectedRole, setSelectedRole] = useState<any>(null);
