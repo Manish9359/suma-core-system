@@ -51,6 +51,49 @@ def get_roles(db: Session = Depends(get_db), user: User = Depends(get_current_us
     roles = db.query(Role).filter_by(tenant_id=user.tenant_id).all()
     return [{"id": r.id, "name": r.name} for r in roles]
 
+@system_router.post("/seed-demo-data")
+def seed_demo_data(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if user.role != "Admin":
+        raise HTTPException(403, "Admin only")
+    try:
+        from seed_demo_data import seed_data
+        seed_data()
+        return {"status": "success", "message": "Demo data seeded successfully"}
+    except Exception as e:
+        raise HTTPException(500, f"Seeding failed: {str(e)}")
+
+@system_router.post("/clear-demo-data")
+def clear_demo_data(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    if user.role != "Admin":
+        raise HTTPException(403, "Admin only")
+    try:
+        from app.models import (
+            Customer, Lead, Product, Supplier, Employee, Invoice, InvoiceItem,
+            Quotation, QuotationItem, SalesOrder, SalesOrderItem,
+            PurchaseOrder, PurchaseOrderItem, PurchaseReceipt, PurchaseReceiptItem,
+            PurchaseInvoiceModel, Opportunity, Project, Task, Issue,
+            AMC, Installation, PaymentEntry, Attendance, SalarySlip,
+            BOM, BOMItem, GLEntry, StockLedgerEntry, StockLedger, Bin, Timesheet
+        )
+        tables = [
+            InvoiceItem, GLEntry, StockLedgerEntry, StockLedger, Bin,
+            QuotationItem, SalesOrderItem, PurchaseOrderItem, PurchaseReceiptItem,
+            Invoice, Quotation, SalesOrder, PurchaseOrder, PurchaseReceipt,
+            PurchaseInvoiceModel, PaymentEntry, Attendance, SalarySlip,
+            BOMItem, BOM, Task, Issue, AMC, Installation, Project,
+            Opportunity, Lead, Customer, Supplier, Employee, Product
+        ]
+        for tbl in tables:
+            try:
+                db.query(tbl).filter_by(tenant_id=user.tenant_id).delete()
+            except Exception:
+                pass
+        db.commit()
+        return {"status": "success", "message": "Demo data cleared"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Clear failed: {str(e)}")
+
 router.include_router(system_router)
 
 # ─── Engine / Stock Balance Endpoints ───
