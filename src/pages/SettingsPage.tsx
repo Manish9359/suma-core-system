@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Save, Building2, Bell, Shield, CreditCard, Sun, Moon, Monitor, Palette } from "lucide-react";
+import { Save, Building2, Bell, Shield, CreditCard, Sun, Moon, Monitor, Palette, Database, RefreshCw, Trash2 as TrashIcon, AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
