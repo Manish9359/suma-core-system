@@ -345,6 +345,10 @@ export default function SettingsPage() {
             </CardContent>
           </Card>
         </TabsContent>
+        {/* Data Management Tab */}
+        <TabsContent value="data" className="focus-visible:outline-none">
+          <DataManagementCard />
+        </TabsContent>
       </Tabs>
       <RecordModal
         open={userModalOpen}
