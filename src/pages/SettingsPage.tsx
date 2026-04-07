@@ -205,12 +205,8 @@ export default function SettingsPage() {
       toast.error(err.message || "Failed to save settings");
     }
   };
-  if (companyLoading || usersLoading || rolesLoading) {
+  if (companyLoading) {
     return <div className="module-page flex items-center justify-center h-[50vh]"><LoadingState message="Initializing settings..." /></div>;
-  }
-  
-  if (usersError || rolesError) {
-    return <div className="module-page"><ErrorState message="Critical Failure: Failed to load security profiles." onRetry={() => { refetchUsers(); refetchRoles(); }} /></div>;
   }
 
   return (
