@@ -7,29 +7,29 @@ export default function HRPage() {
   return (
     <div className="flex flex-col h-full">
       {/* HR Global Navigation / Tabs */}
-      <div className="flex gap-4 border-b px-6 pt-4 bg-white">
+      <div className="flex gap-4 border-b px-6 pt-4 bg-card">
         <button 
           onClick={() => setTab("Employee")} 
-          className={`pb-3 px-3 text-sm font-semibold transition-all border-b-2 ${tab === "Employee" ? "border-accent text-accent" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          className={`pb-3 px-3 text-sm font-semibold transition-all border-b-2 ${tab === "Employee" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
         >
           Staff Directory
         </button>
         <button 
           onClick={() => setTab("Attendance")} 
-          className={`pb-3 px-3 text-sm font-semibold transition-all border-b-2 ${tab === "Attendance" ? "border-accent text-accent" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          className={`pb-3 px-3 text-sm font-semibold transition-all border-b-2 ${tab === "Attendance" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
         >
           Attendance Logs
         </button>
         <button 
           onClick={() => setTab("Salary Slip")} 
-          className={`pb-3 px-3 text-sm font-semibold transition-all border-b-2 ${tab === "Salary Slip" ? "border-accent text-accent" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          className={`pb-3 px-3 text-sm font-semibold transition-all border-b-2 ${tab === "Salary Slip" ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}
         >
           Payroll & Slips
         </button>
       </div>
 
       {/* Render the dynamically generated Metadata page based on the selected tab */}
-      <div className="flex-1 bg-slate-50 relative">
+      <div className="flex-1 relative">
         <GenericModulePage 
           key={tab} 
           doctype={tab} 
