@@ -61,7 +61,7 @@ export default function LoginPage() {
                 placeholder="you@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="h-11 bg-white border-[hsl(214,32%,91%)] focus:border-[hsl(212,100%,48%)] focus:ring-2 focus:ring-[hsl(212,100%,48%,0.15)] rounded-xl text-sm"
+                className="h-11 bg-card border-border focus:border-primary focus:ring-2 focus:ring-primary/15 rounded-xl text-sm"
                 autoFocus
               />
             </div>
@@ -75,7 +75,7 @@ export default function LoginPage() {
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="h-11 bg-white border-[hsl(214,32%,91%)] focus:border-[hsl(212,100%,48%)] focus:ring-2 focus:ring-[hsl(212,100%,48%,0.15)] rounded-xl text-sm pr-10"
+                  className="h-11 bg-card border-border focus:border-primary focus:ring-2 focus:ring-primary/15 rounded-xl text-sm pr-10"
                 />
                 <button
                   type="button"

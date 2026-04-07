@@ -205,12 +205,8 @@ export default function SettingsPage() {
       toast.error(err.message || "Failed to save settings");
     }
   };
-  if (companyLoading || usersLoading || rolesLoading) {
+  if (companyLoading) {
     return <div className="module-page flex items-center justify-center h-[50vh]"><LoadingState message="Initializing settings..." /></div>;
-  }
-  
-  if (usersError || rolesError) {
-    return <div className="module-page"><ErrorState message="Critical Failure: Failed to load security profiles." onRetry={() => { refetchUsers(); refetchRoles(); }} /></div>;
   }
 
   return (
@@ -344,9 +340,12 @@ export default function SettingsPage() {
               </Button>
             </CardHeader>
             <CardContent>
+              {usersLoading ? <LoadingState message="Loading users..." /> : usersError ? (
+                <ErrorState message="Failed to load users. Ensure backend is running." onRetry={refetchUsers} />
+              ) : (
               <div className="border rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
-                  <thead className="bg-slate-50 border-b text-[10px] font-semibold text-slate-500 uppercase">
+                  <thead className="bg-muted/50 border-b text-[10px] font-semibold text-muted-foreground uppercase">
                     <tr>
                       <th className="text-left px-4 py-3">Username</th>
                       <th className="text-left px-4 py-3">Role</th>
@@ -356,7 +355,7 @@ export default function SettingsPage() {
                   </thead>
                   <tbody>
                     {(Array.isArray(usersData) ? usersData : [])?.map((u: any) => (
-                      <tr key={u.id} className="border-b last:border-0 hover:bg-slate-50 transition-colors">
+                      <tr key={u.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
                         <td className="px-4 py-3 font-medium">{u.username}</td>
                         <td className="px-4 py-3"><Badge variant="outline">{u.role}</Badge></td>
                         <td className="px-4 py-3">
@@ -368,7 +367,7 @@ export default function SettingsPage() {
                           <Button 
                             variant="ghost" 
                             size="icon" 
-                            className="h-8 w-8 text-slate-500 hover:text-primary"
+                            className="h-8 w-8 text-muted-foreground hover:text-primary"
                             onClick={() => {
                               setEditingUser(u);
                               setUserModalOpen(true);
@@ -379,7 +378,7 @@ export default function SettingsPage() {
                           <Button 
                             variant="ghost" 
                             size="icon" 
-                            className="h-8 w-8 text-slate-500 hover:text-destructive"
+                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
                             onClick={async () => {
                               if (confirm(`Delete user ${u.username}?`)) {
                                 try {
@@ -399,6 +398,7 @@ export default function SettingsPage() {
                   </tbody>
                 </table>
               </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -429,6 +429,9 @@ export default function SettingsPage() {
               </Button>
             </CardHeader>
             <CardContent>
+              {rolesLoading ? <LoadingState message="Loading roles..." /> : rolesError ? (
+                <ErrorState message="Failed to load roles. Ensure backend is running." onRetry={refetchRoles} />
+              ) : (
               <div className="space-y-4">
                 {(Array.isArray(rolesData) ? rolesData : [])?.map((role: any) => (
                   <div key={role.id} className="border rounded-md p-4">
@@ -450,6 +453,7 @@ export default function SettingsPage() {
                   </div>
                 ))}
               </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
