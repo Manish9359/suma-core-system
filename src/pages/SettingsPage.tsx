@@ -429,6 +429,9 @@ export default function SettingsPage() {
               </Button>
             </CardHeader>
             <CardContent>
+              {rolesLoading ? <LoadingState message="Loading roles..." /> : rolesError ? (
+                <ErrorState message="Failed to load roles. Ensure backend is running." onRetry={refetchRoles} />
+              ) : (
               <div className="space-y-4">
                 {(Array.isArray(rolesData) ? rolesData : [])?.map((role: any) => (
                   <div key={role.id} className="border rounded-md p-4">
@@ -450,6 +453,7 @@ export default function SettingsPage() {
                   </div>
                 ))}
               </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
