@@ -250,7 +250,7 @@ export default function InvoicePrint() {
           </div>
         </div>
 
-        {/* Amount in words + QR Code */}
+        {/* Amount in words + UPI QR Code */}
         <div className="flex items-end justify-between mb-6">
           <p className="text-[11px] flex-1">
             <span className="font-bold">Amount in Words:</span>{" "}
@@ -258,18 +258,12 @@ export default function InvoicePrint() {
           </p>
           <div className="shrink-0 ml-4 flex flex-col items-center">
             <QRCodeSVG
-              value={JSON.stringify({
-                invoice: data.id,
-                date: data.date,
-                customer: customerName,
-                total: grandTotal,
-                gstin: co?.gstin || "",
-                company: companyName,
-              })}
-              size={80}
+              value={`upi://pay?pa=${encodeURIComponent(co?.upi_id || co?.email || "payments@sumatech")}&pn=${encodeURIComponent(companyName)}&am=${grandTotal.toFixed(2)}&cu=INR&tn=${encodeURIComponent(`Invoice ${data.id}`)}`}
+              size={90}
               level="M"
             />
-            <p className="text-[8px] text-gray-400 mt-1">Scan for details</p>
+            <p className="text-[8px] text-gray-500 mt-1 font-semibold">Scan to Pay ₹{inr(grandTotal)}</p>
+            <p className="text-[7px] text-gray-400">UPI / Google Pay / PhonePe</p>
           </div>
         </div>
 
