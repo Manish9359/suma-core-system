@@ -1,10 +1,10 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Package, AlertTriangle, XCircle, CheckCircle2, Search, PlusCircle, Edit, Trash2, ArrowUpDown } from "lucide-react";
+import { Package, AlertTriangle, XCircle, CheckCircle2, Search, PlusCircle, Edit, Trash2, ArrowUpDown, Upload, Download, FileSpreadsheet } from "lucide-react";
 import { toast } from "sonner";
 import { localStore, LocalProduct } from "@/lib/localStore";
 
