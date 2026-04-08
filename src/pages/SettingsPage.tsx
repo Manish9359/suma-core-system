@@ -184,26 +184,27 @@ export default function SettingsPage() {
   const [userModalOpen, setUserModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
 
-  const { data: company, isLoading: companyLoading, refetch: refetchCompany } = useApiQuery(["settings", "company"], () => api.get<any>("/api/v1/settings/company"));
-  const { data: usersData, isLoading: usersLoading, error: usersError, refetch: refetchUsers } = useApiQuery(["system", "users"], () => systemApi.getUsers());
-  const { data: rolesData, isLoading: rolesLoading, error: rolesError, refetch: refetchRoles } = useApiQuery(["system", "roles"], () => systemApi.getRoles());
+  const [companyLoading, setCompanyLoading] = useState(true);
+  const [company, setCompany] = useState<any>(null);
 
-  const [form, setForm] = useState<any>({});
+  useEffect(() => {
+    // Try backend, fallback to localStorage
+    api.get<any>("/api/v1/settings/company")
+      .then((data) => { setCompany(data); setCompanyLoading(false); })
+      .catch(() => {
+        const { companySettings } = require("@/lib/localStore");
+        setCompany(companySettings.get());
+        setCompanyLoading(false);
+      });
+  }, []);
 
-  const merged = { ...(company || {}), ...form };
-
-  const set = (k: string, v: string) => setForm((p: any) => ({ ...p, [k]: v }));
-
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await api.post("/api/v1/settings/company", merged);
-      toast.success("Settings saved successfully");
-      refetchCompany();
-      setForm({});
-    } catch (err: any) {
-      toast.error(err.message || "Failed to save settings");
-    }
+  const refetchCompany = () => {
+    api.get<any>("/api/v1/settings/company")
+      .then(setCompany)
+      .catch(() => {
+        const { companySettings } = require("@/lib/localStore");
+        setCompany(companySettings.get());
+      });
   };
   if (companyLoading) {
     return <div className="module-page flex items-center justify-center h-[50vh]"><LoadingState message="Initializing settings..." /></div>;
