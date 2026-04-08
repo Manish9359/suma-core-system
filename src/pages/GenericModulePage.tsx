@@ -1,16 +1,15 @@
 import { useState, useEffect } from "react";
-import { PlusCircle, Search, Edit, Trash2, FileText, Filter, Printer } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { PlusCircle, Search, Edit, Trash2, FileText, Printer } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { RecordModal, RecordField } from "@/components/RecordModal";
-import { useApiQuery } from "@/hooks/useApiQuery";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { LoadingState, ErrorState } from "@/components/LoadingState";
+import { LoadingState } from "@/components/LoadingState";
 import { Badge } from "@/components/ui/badge";
 import { getStatusColor, NamingSeries } from "@/lib/docEngine";
+import { docStore, LOCAL_META } from "@/lib/localStore";
 
 export default function GenericModulePage({
   doctype,
@@ -26,7 +25,10 @@ export default function GenericModulePage({
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRecord, setEditingRecord] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const navigate = useNavigate();
+  const [records, setRecords] = useState<any[]>([]);
+  const [meta, setMeta] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [fields, setFields] = useState<RecordField[]>([]);
 
   const printableTypes: Record<string, string> = {
     "Sales Invoice": "invoice",
@@ -35,90 +37,100 @@ export default function GenericModulePage({
     "Purchase Receipt": "purchase_receipt",
   };
 
-  // Fetch metadata
-  const { data: meta, isLoading: metaLoading, error: metaError, refetch: refetchMeta } = useApiQuery(
-    ["meta", doctype],
-    () => api.get<any>(`/api/v1/doc/meta/${doctype}`)
-  );
-
-  // Fetch records
-  const { data: records, isLoading: recordsLoading, refetch: refetchRecords } = useApiQuery(
-    ["doc", doctype],
-    () => api.get<any[]>(`/api/v1/doc/${doctype}`)
-  );
-
-  const rawFields = meta?.fields || [];
-  const [fields, setFields] = useState<RecordField[]>([]);
-  const namingPrefix = meta?.naming_prefix || "";
-
-  // Resolve metadata (links & tables)
+  // Load metadata - try backend, fallback to local
   useEffect(() => {
-    const resolveFieldOptions = async (f: any) => {
-      const type = (f.fieldtype?.toLowerCase() || f.type?.toLowerCase() || "text").trim();
-      let options = f.options;
-
-      if (typeof options === "string" && !options.includes(",")) {
-        try {
-          const targetDocType = (options.startsWith("Link:") ? options.split(":")[1] : options).trim();
-          if (/^[A-Z]/.test(targetDocType) && type !== "table") {
-            const targetDocs = await api.get<any[]>(`/api/v1/doc/${encodeURIComponent(targetDocType)}`);
-            if (Array.isArray(targetDocs)) {
-              options = targetDocs.map((d) => {
-                // Determine the primary identifier for the 'value' field (id, sku, etc)
-                const val = d.id !== undefined && d.id !== null ? d.id : 
-                            d.sku !== undefined && d.sku !== null ? d.sku : 
-                            Object.values(d).find(v => v !== null && typeof v !== 'object') || '';
-
-                return {
-                  label: d.company || d.item_name || d.customer_name || d.full_name || d.name || String(val),
-                  value: val,
-                  full_data: d,
-                };
-              });
-            }
-          }
-        } catch {
-          options = options ? [options] : [];
-        }
-      } else if (typeof options === "string") {
-        options = options.split(",").map((o: string) => o.trim());
+    let cancelled = false;
+    const loadMeta = async () => {
+      try {
+        const remoteMeta = await api.get<any>(`/api/v1/doc/meta/${doctype}`);
+        if (!cancelled) setMeta(remoteMeta);
+      } catch {
+        // Use local metadata
+        if (!cancelled) setMeta(LOCAL_META[doctype] || { doctype, fields: [] });
       }
-      return options;
     };
+    loadMeta();
+    return () => { cancelled = true; };
+  }, [doctype]);
 
-    const resolveMetadata = async () => {
-      const currentRawFields = meta?.fields || [];
+  // Load records - try backend, fallback to local
+  const loadRecords = async () => {
+    try {
+      const remoteRecords = await api.get<any[]>(`/api/v1/doc/${encodeURIComponent(doctype)}`);
+      setRecords(Array.isArray(remoteRecords) ? remoteRecords : []);
+    } catch {
+      // Use local store
+      setRecords(docStore.list(doctype));
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    setLoading(true);
+    loadRecords();
+  }, [doctype]);
+
+  // Resolve fields from meta
+  useEffect(() => {
+    if (!meta) return;
+    const rawFields = meta.fields || [];
+
+    const resolveFields = async () => {
       const resolved = await Promise.all(
-        currentRawFields.map(async (f: any) => {
+        rawFields.map(async (f: any) => {
           const type = (f.fieldtype?.toLowerCase() || f.type?.toLowerCase() || "text").trim();
-          const options = await resolveFieldOptions(f);
-          let columns: any[] = [];
+          let options = f.options;
 
+          // Resolve link options from local store
+          if (typeof options === "string" && !options.includes(",")) {
+            const targetDocType = (options.startsWith("Link:") ? options.split(":")[1] : options).trim();
+            if (/^[A-Z]/.test(targetDocType) && type !== "table") {
+              try {
+                let targetDocs: any[] = [];
+                try {
+                  targetDocs = await api.get<any[]>(`/api/v1/doc/${encodeURIComponent(targetDocType)}`);
+                } catch {
+                  targetDocs = docStore.list(targetDocType);
+                }
+                if (Array.isArray(targetDocs) && targetDocs.length > 0) {
+                  options = targetDocs.map((d) => {
+                    const val = d.id ?? d.sku ?? (Object.values(d).find(v => v !== null && typeof v !== 'object') || '');
+                    return {
+                      label: d.company || d.item_name || d.customer_name || d.full_name || d.name || String(val),
+                      value: val,
+                      full_data: d,
+                    };
+                  });
+                }
+              } catch {
+                options = options ? [options] : [];
+              }
+            }
+          } else if (typeof options === "string") {
+            options = options.split(",").map((o: string) => o.trim());
+          }
+
+          let columns: any[] = [];
           if (type === "table") {
             let childFields = Array.isArray(f.columns) ? f.columns : [];
             if (childFields.length === 0 && typeof f.options === "string") {
               try {
                 const childMeta = await api.get<any>(`/api/v1/doc/meta/${encodeURIComponent(f.options)}`);
                 childFields = childMeta?.fields || [];
-              } catch (e) {
-                console.error(`Child meta error for ${f.options}`, e);
+              } catch {
+                childFields = [];
               }
             }
-
-            columns = await Promise.all(
-              childFields.map(async (cf: any) => ({
-                name: cf.name,
-                label: cf.label || cf.name,
-                type:
-                  cf.fieldtype?.toLowerCase() === "int" || cf.fieldtype?.toLowerCase() === "float"
-                    ? "number"
-                    : cf.fieldtype?.toLowerCase() || cf.type?.toLowerCase() || "text",
-                required: !!cf.required,
-                disabled: !!cf.readonly || !!cf.disabled,
-                fetch_from: cf.fetch_from,
-                options: await resolveFieldOptions(cf),
-              }))
-            );
+            columns = childFields.map((cf: any) => ({
+              name: cf.name,
+              label: cf.label || cf.name,
+              type: cf.fieldtype?.toLowerCase() === "int" || cf.fieldtype?.toLowerCase() === "float" || cf.fieldtype?.toLowerCase() === "number"
+                ? "number" : cf.fieldtype?.toLowerCase() || cf.type?.toLowerCase() || "text",
+              required: !!cf.required,
+              disabled: !!cf.readonly || !!cf.disabled,
+              fetch_from: cf.fetch_from,
+              options: typeof cf.options === "string" ? cf.options.split(",").map((o: string) => o.trim()) : cf.options,
+            }));
           }
 
           return {
@@ -136,29 +148,23 @@ export default function GenericModulePage({
       setFields(resolved);
     };
 
-    if (meta) resolveMetadata();
+    resolveFields();
   }, [meta, doctype]);
 
-  if (metaLoading || recordsLoading) return <div className="module-page"><LoadingState message={`Loading ${title || doctype}...`} /></div>;
-  if (metaError) return <div className="module-page"><ErrorState message={`Failed to load metadata for ${doctype}`} onRetry={refetchMeta} /></div>;
+  if (loading) return <div className="module-page"><LoadingState message={`Loading ${title || doctype}...`} /></div>;
 
+  const namingPrefix = meta?.naming_prefix || "";
   const listColumns = fields.filter((f) => f.name !== "id" && f.name !== "tenant_id" && f.type !== "table" && !f.name.startsWith("_")).slice(0, 6);
-  const statusField = fields.find((f) => f.name === "workflow_state" || f.name === "status");
-  const hasStatus = !!statusField;
 
-  // Resolve the true primary key of a record — works for both `id` and non-standard PKs like `sku`
   const getRecordId = (record: any): string | number => {
     if (record == null) return "";
-    // Prefer explicit `id`, fall back to `sku`, then the first non-null non-object value
     if (record.id !== undefined && record.id !== null) return record.id;
     if (record.sku !== undefined && record.sku !== null) return record.sku;
-    const firstVal = Object.values(record).find(
-      (v) => v !== null && v !== undefined && typeof v !== "object"
-    );
+    const firstVal = Object.values(record).find((v) => v !== null && v !== undefined && typeof v !== "object");
     return (firstVal as string | number) ?? "";
   };
 
-  const filteredRecords = (Array.isArray(records) ? records : []).filter((r) =>
+  const filteredRecords = records.filter((r) =>
     Object.values(r).some((val) => String(val).toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
@@ -166,37 +172,50 @@ export default function GenericModulePage({
     try {
       const recId = getRecordId(editingRecord);
       if (editingRecord && recId) {
-        await api.put(`/api/v1/doc/${doctype}/${recId}`, data);
+        // Try backend, fallback to local
+        try {
+          await api.put(`/api/v1/doc/${doctype}/${recId}`, data);
+        } catch {
+          docStore.update(doctype, String(recId), data);
+        }
         toast.success(`${doctype} updated`);
       } else {
-        await api.post(`/api/v1/doc/${doctype}`, data);
+        try {
+          await api.post(`/api/v1/doc/${doctype}`, data);
+        } catch {
+          docStore.create(doctype, data);
+        }
         toast.success(`${doctype} created`);
       }
-      refetchRecords();
+      await loadRecords();
     } catch (e: any) {
       toast.error(e.message || "Operation failed");
     }
   };
 
   const handleDelete = async (id: string | number) => {
-    const record = (records || []).find((r: any) => getRecordId(r) === id);
+    const record = records.find((r: any) => getRecordId(r) === id);
     if (record?.workflow_state === "Submitted" || record?.status === "Submitted") {
       toast.error("Cannot delete a submitted document. Cancel it first.");
       return;
     }
     if (confirm(`Are you sure you want to delete this ${doctype}?`)) {
       try {
-        await api.delete(`/api/v1/doc/${doctype}/${id}`);
+        try {
+          await api.delete(`/api/v1/doc/${doctype}/${id}`);
+        } catch {
+          docStore.delete(doctype, String(id));
+        }
         toast.success(`${doctype} deleted`);
-        refetchRecords();
+        await loadRecords();
       } catch (e: any) {
         toast.error(e.message || "Failed to delete");
       }
     }
   };
 
+  const totalRecords = records.length;
   const recordCount = filteredRecords.length;
-  const totalRecords = Array.isArray(records) ? records.length : 0;
 
   return (
     <div className="module-page">
@@ -320,7 +339,7 @@ export default function GenericModulePage({
 
       <RecordModal
         open={modalOpen}
-        onOpenChange={(v: boolean) => { setModalOpen(v); if (!v) refetchRecords(); }}
+        onOpenChange={(v: boolean) => { setModalOpen(v); if (!v) loadRecords(); }}
         title={getRecordId(editingRecord) ? `${doctype} — ${editingRecord.name || getRecordId(editingRecord)}` : `New ${doctype}`}
         fields={fields}
         initialData={editingRecord}

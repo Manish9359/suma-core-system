@@ -31,13 +31,17 @@ async function fetchStockBalance(itemCode: string): Promise<{ qty: number; name:
   }
   try {
     stockCache[itemCode] = { qty: 0, name: "", loading: true };
-    const data = await api.get<any>(`/api/v1/engine/stock_balance/${encodeURIComponent(itemCode)}`);
+    const data = await (await import("@/lib/api")).api.get<any>(`/api/v1/engine/stock_balance/${encodeURIComponent(itemCode)}`);
     const result = { qty: data.total_qty || 0, name: data.item_name || itemCode, loading: false };
     stockCache[itemCode] = result;
     return result;
   } catch {
-    stockCache[itemCode] = { qty: 0, name: itemCode, loading: false };
-    return stockCache[itemCode];
+    // Fallback to local store
+    const { localStore } = await import("@/lib/localStore");
+    const balance = localStore.getStockBalance(itemCode);
+    const result = { qty: balance.qty, name: balance.name, loading: false };
+    stockCache[itemCode] = result;
+    return result;
   }
 }
 

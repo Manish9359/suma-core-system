@@ -6,6 +6,8 @@ import { format } from "date-fns";
 import { Printer } from "lucide-react";
 import { amountToWords } from "@/lib/amountToWords";
 import { QRCodeSVG } from "qrcode.react";
+import { useState, useEffect } from "react";
+import { companySettings, docStore } from "@/lib/localStore";
 
 /* ─── helpers ─── */
 const inr = (v: number) => v.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -16,19 +18,36 @@ export default function InvoicePrint() {
   const isPO = type === "purchase_order";
   const isPR = type === "purchase_receipt";
 
-  const { data: rawData, isLoading, error } = useApiQuery(
-    ["doc", type, id],
-    () => {
-      if (isQuote) return salesApi.getQuotation(id!);
-      if (isPO) return purchasingApi.getOrder(id!);
-      if (isPR) return purchasingApi.getReceipt(id!);
-      return salesApi.getInvoice(id!);
-    }
-  );
-  const data = rawData as any;
-  const { data: co } = useApiQuery(["settings", "company"], () =>
-    api.get<any>("/api/v1/settings/company")
-  );
+  const [data, setData] = useState<any>(null);
+  const [co, setCo] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    // Load company settings
+    api.get<any>("/api/v1/settings/company").then(setCo).catch(() => setCo(companySettings.get()));
+
+    // Load document
+    const fetchDoc = async () => {
+      try {
+        let doc: any;
+        if (isQuote) doc = await salesApi.getQuotation(id!);
+        else if (isPO) doc = await purchasingApi.getOrder(id!);
+        else if (isPR) doc = await purchasingApi.getReceipt(id!);
+        else doc = await salesApi.getInvoice(id!);
+        setData(doc);
+      } catch {
+        // Fallback to local store
+        const dtMap: Record<string, string> = { quotation: "Quotation", purchase_order: "Purchase Order", purchase_receipt: "Purchase Receipt" };
+        const doctype = type ? (dtMap[type] || "Sales Invoice") : "Sales Invoice";
+        const localDoc = docStore.get(doctype, id!);
+        if (localDoc) setData(localDoc);
+        else setError(true);
+      }
+      setIsLoading(false);
+    };
+    fetchDoc();
+  }, [id, type]);
 
   if (isLoading) return <LoadingState message={`Loading ${type || "invoice"}...`} />;
   if (error || !data) return <ErrorState message={`Could not load ${type || "invoice"}.`} />;
