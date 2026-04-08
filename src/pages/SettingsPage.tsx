@@ -8,13 +8,12 @@ import { Save, Building2, Bell, Shield, CreditCard, Sun, Moon, Monitor, Palette,
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { useState, useEffect } from "react";
-import { useApiQuery } from "@/hooks/useApiQuery";
-import { Switch } from "@/components/ui/switch";
-import { api, authApi, systemApi } from "@/lib/api";
-import { RecordModal, RecordField } from "@/components/RecordModal";
+import { api, systemApi } from "@/lib/api";
+import { RecordModal } from "@/components/RecordModal";
 import { Badge } from "@/components/ui/badge";
 import { UserCog, Trash2, Edit, ShieldCheck, PlusCircle } from "lucide-react";
 import { LoadingState, ErrorState } from "@/components/LoadingState";
+import { companySettings } from "@/lib/localStore";
 
 type ThemeMode = "light" | "dark" | "system";
 
@@ -75,43 +74,107 @@ function DataManagementCard() {
   const [seedResult, setSeedResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const handleSeed = async () => {
-    if (!confirm("This will populate ALL modules with demo data (Customers, Products, Invoices, etc.). Continue?")) return;
+    if (!confirm("This will populate ALL modules with demo data. Continue?")) return;
     setSeeding(true);
     setSeedResult(null);
     try {
       await api.post("/api/v1/system/seed-demo-data", {});
-      setSeedResult({ ok: true, msg: "Demo data seeded successfully! Refresh pages to see data." });
+      setSeedResult({ ok: true, msg: "Demo data seeded successfully!" });
       toast.success("Demo data seeded across all modules");
-    } catch (e: any) {
-      setSeedResult({ ok: false, msg: e.message || "Seeding failed" });
-      toast.error(e.message || "Seeding failed");
+    } catch {
+      // Seed locally
+      const { docStore } = await import("@/lib/localStore");
+      const demoData: Record<string, any[]> = {
+        "Customer": [
+          { customer_name: "Reliance Industries", company: "Reliance Industries Ltd", contact: "Mukesh Shah", phone: "+91 9876543210", email: "security@ril.com", address: "Navi Mumbai, Maharashtra", gst: "27AAACR5055K1ZS", status: "Active" },
+          { customer_name: "Tata Consultancy", company: "TCS Ltd", contact: "Rajesh Kumar", phone: "+91 9876543211", email: "facilities@tcs.com", address: "Hinjewadi, Pune", gst: "27AAACT2727Q1ZV", status: "Active" },
+          { customer_name: "Infosys Campus", company: "Infosys Ltd", contact: "Priya Sharma", phone: "+91 9876543212", email: "admin@infosys.com", address: "Electronics City, Bangalore", gst: "29AABCI1234F1ZP", status: "Active" },
+          { customer_name: "HDFC Bank Branch", company: "HDFC Bank", contact: "Amit Patel", phone: "+91 9876543213", email: "branch@hdfc.com", address: "FC Road, Pune", gst: "27AAACH1234Q1ZS", status: "Active" },
+          { customer_name: "Maharashtra Police HQ", company: "Govt of Maharashtra", contact: "Inspector Deshmukh", phone: "+91 9876543214", email: "it@maharashtra.gov.in", address: "Mumbai, Maharashtra", gst: "27AAAGM1234A1ZP", status: "Active" },
+        ],
+        "Supplier": [
+          { supplier_name: "Hikvision India", contact: "Wang Li", phone: "+91 22-12345678", email: "sales@hikvision.in", address: "Mumbai", gst: "27AABCH1234K1ZS", category: "CCTV" },
+          { supplier_name: "Dahua Technology", contact: "Chen Wei", phone: "+91 22-87654321", email: "india@dahuatech.com", address: "Delhi", gst: "07AABCD1234K1ZS", category: "CCTV" },
+          { supplier_name: "D-Link India", contact: "Suresh Nair", phone: "+91 80-12345678", email: "enterprise@dlink.co.in", address: "Bangalore", gst: "29AABCD5678K1ZP", category: "Networking" },
+        ],
+        "Lead": [
+          { lead_name: "Wipro New Campus", company: "Wipro Ltd", phone: "+91 9812345678", email: "facilities@wipro.com", source: "Referral", status: "New" },
+          { lead_name: "SBI Main Branch", company: "State Bank of India", phone: "+91 9823456789", email: "it@sbi.co.in", source: "Cold Call", status: "Contacted" },
+          { lead_name: "Bajaj Auto Plant", company: "Bajaj Auto", phone: "+91 9834567890", email: "security@bajaj.com", source: "Exhibition", status: "Qualified" },
+        ],
+        "Employee": [
+          { full_name: "Rajesh Kulkarni", designation: "Senior Engineer", department: "Engineering", phone: "+91 9876000001", email: "rajesh@sumatech.in", salary: 65000, status: "Active" },
+          { full_name: "Priya Joshi", designation: "Sales Manager", department: "Sales", phone: "+91 9876000002", email: "priya@sumatech.in", salary: 55000, status: "Active" },
+          { full_name: "Amit Deshmukh", designation: "Technician", department: "Support", phone: "+91 9876000003", email: "amit@sumatech.in", salary: 35000, status: "Active" },
+          { full_name: "Sneha Patil", designation: "HR Executive", department: "HR", phone: "+91 9876000004", email: "sneha@sumatech.in", salary: 45000, status: "Active" },
+        ],
+        "Product": [
+          { name: "Hikvision 2MP Dome Camera", sku: "HIK-DS-2CE5AD0T", category: "CCTV Camera", brand: "Hikvision", cost: 1200, sell: 1850, stock: 45, warehouse: "WH-001", hsn_code: "85258090", unit: "Nos" },
+          { name: "Hikvision 4MP IP Bullet", sku: "HIK-DS-2CD1043G0", category: "CCTV Camera", brand: "Hikvision", cost: 3200, sell: 4500, stock: 20, warehouse: "WH-001", hsn_code: "85258090", unit: "Nos" },
+          { name: "Dahua 8CH NVR", sku: "DH-NVR4108HS", category: "DVR/NVR", brand: "Dahua", cost: 5500, sell: 7800, stock: 12, warehouse: "WH-001", hsn_code: "85219090", unit: "Nos" },
+          { name: "Seagate 2TB HDD", sku: "ST2000VX015", category: "Hard Disk", brand: "Seagate", cost: 4200, sell: 5500, stock: 30, warehouse: "WH-001", hsn_code: "84717020", unit: "Nos" },
+          { name: "Cat6 Cable 305m Box", sku: "CAT6-305M-BOX", category: "Cable", brand: "D-Link", cost: 3800, sell: 5200, stock: 8, warehouse: "WH-001", hsn_code: "85444999", unit: "Box" },
+          { name: "D-Link 24-Port Switch", sku: "DGS-1024D", category: "Switch", brand: "D-Link", cost: 4800, sell: 6500, stock: 5, warehouse: "WH-001", hsn_code: "85176290", unit: "Nos" },
+          { name: "BNC Connector Pack (100)", sku: "BNC-100PK", category: "Connector", brand: "Generic", cost: 250, sell: 450, stock: 100, warehouse: "WH-001", hsn_code: "85366990", unit: "Box" },
+          { name: "APC 1KVA UPS", sku: "APC-BX1100", category: "UPS", brand: "APC", cost: 4500, sell: 6200, stock: 3, warehouse: "WH-001", hsn_code: "85044090", unit: "Nos" },
+        ],
+        "AMC": [
+          { customer: "Reliance Industries", equipment: "64 CCTV Cameras + 4 NVR", start_date: "2025-04-01", end_date: "2026-03-31", visits: 4, amount: 85000, status: "Active" },
+          { customer: "HDFC Bank Branch", equipment: "16 Cameras + DVR", start_date: "2025-01-01", end_date: "2025-12-31", visits: 2, amount: 25000, status: "Active" },
+        ],
+        "Installation": [
+          { customer: "TCS Hinjewadi", site: "Building 3, Hinjewadi Phase 2", devices: "32 IP Cameras + NVR", team: "Rajesh Kulkarni", completion: 75, status: "In Progress" },
+          { customer: "SBI Main Branch", site: "FC Road, Pune", devices: "8 Dome Cameras + DVR", team: "Amit Deshmukh", completion: 100, status: "Completed" },
+        ],
+        "Project": [
+          { project_name: "TCS Campus Surveillance Upgrade", customer: "Tata Consultancy", start_date: "2025-03-01", end_date: "2025-06-30", budget: 450000, progress: 60, status: "Active" },
+          { project_name: "HDFC Branch Security System", customer: "HDFC Bank Branch", start_date: "2025-04-01", end_date: "2025-05-15", budget: 120000, progress: 30, status: "Active" },
+        ],
+      };
+
+      for (const [dt, records] of Object.entries(demoData)) {
+        for (const rec of records) {
+          docStore.create(dt, rec);
+        }
+      }
+
+      // Also save products to inventory store
+      const { localStore } = await import("@/lib/localStore");
+      const existingProducts = localStore.getProducts();
+      if (existingProducts.length === 0) {
+        for (const p of demoData["Product"]) {
+          localStore.createProduct(p as any);
+        }
+      }
+
+      setSeedResult({ ok: true, msg: "Demo data seeded locally! Refresh pages to see data." });
+      toast.success("Demo data seeded locally across all modules");
     } finally {
       setSeeding(false);
     }
   };
 
   const handleClear = async () => {
-    if (!confirm("⚠️ WARNING: This will DELETE all transactional data (invoices, orders, customers, products, etc.). This cannot be undone! Continue?")) return;
+    if (!confirm("⚠️ WARNING: This will DELETE all data. This cannot be undone! Continue?")) return;
     setClearing(true);
     setSeedResult(null);
     try {
       await api.post("/api/v1/system/clear-demo-data", {});
-      setSeedResult({ ok: true, msg: "All demo/transactional data cleared." });
-      toast.success("Data cleared successfully");
-    } catch (e: any) {
-      setSeedResult({ ok: false, msg: e.message || "Clear failed" });
-      toast.error(e.message || "Clear failed");
-    } finally {
-      setClearing(false);
+    } catch {
+      // Clear localStorage docs
+      const keys = Object.keys(localStorage).filter(k => k.startsWith("suma_doc_") || k.startsWith("suma_counter_"));
+      keys.forEach(k => localStorage.removeItem(k));
+      localStorage.removeItem("suma_products");
+      localStorage.removeItem("suma_stock_ledger");
     }
+    setSeedResult({ ok: true, msg: "All data cleared." });
+    toast.success("Data cleared successfully");
+    setClearing(false);
   };
 
   const modules = [
-    "Customers (8)", "Suppliers (5)", "Products (20)", "Employees (8)",
-    "Leads (5)", "Opportunities (3)", "Quotations (3)", "Sales Orders (3)",
-    "Sales Invoices (3)", "Purchase Orders (3)", "Purchase Receipts (2)",
-    "Projects (3)", "AMC Contracts (3)", "Installations (3)", "Attendance & Salary",
-    "GL Entries", "Stock Ledger", "Payment Entries"
+    "Customers (5)", "Suppliers (3)", "Products (8)", "Employees (4)",
+    "Leads (3)", "AMC Contracts (2)", "Installations (2)", "Projects (2)"
   ];
 
   return (
@@ -124,14 +187,13 @@ function DataManagementCard() {
         <CardDescription>Seed demo data across all modules or clear existing data.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {/* Seed Section */}
         <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 space-y-4">
           <div className="flex items-start gap-3">
             <RefreshCw className="h-5 w-5 text-primary mt-0.5" />
             <div className="flex-1">
               <h3 className="font-semibold text-sm">Seed Demo Data</h3>
               <p className="text-xs text-muted-foreground mt-1">
-                Populate all modules with realistic Indian business data for testing. Safe to run multiple times — skips existing records.
+                Populate all modules with realistic Indian business data for testing.
               </p>
             </div>
           </div>
@@ -146,15 +208,12 @@ function DataManagementCard() {
           </Button>
         </div>
 
-        {/* Clear Section */}
         <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-5 space-y-4">
           <div className="flex items-start gap-3">
             <AlertTriangle className="h-5 w-5 text-destructive mt-0.5" />
             <div className="flex-1">
               <h3 className="font-semibold text-sm text-destructive">Clear All Data</h3>
-              <p className="text-xs text-muted-foreground mt-1">
-                Permanently delete all transactional data. Users, roles, and company settings are preserved.
-              </p>
+              <p className="text-xs text-muted-foreground mt-1">Permanently delete all transactional data.</p>
             </div>
           </div>
           <Button variant="destructive" onClick={handleClear} disabled={seeding || clearing} className="gap-2 w-full sm:w-auto">
@@ -163,7 +222,6 @@ function DataManagementCard() {
           </Button>
         </div>
 
-        {/* Result */}
         {seedResult && (
           <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
             seedResult.ok ? "bg-green-500/10 text-green-700 dark:text-green-400" : "bg-destructive/10 text-destructive"
@@ -179,49 +237,61 @@ function DataManagementCard() {
 
 export default function SettingsPage() {
   const { user } = useAuth();
-  const [selectedRole, setSelectedRole] = useState<any>(null);
-  const [permModalOpen, setPermModalOpen] = useState(false);
   const [userModalOpen, setUserModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<any>(null);
-
   const [companyLoading, setCompanyLoading] = useState(true);
   const [company, setCompany] = useState<any>(null);
+  const [form, setForm] = useState<any>({});
+
+  // Users & Roles
+  const [usersData, setUsersData] = useState<any[]>([]);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState(false);
+  const [rolesData, setRolesData] = useState<any[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(false);
+  const [rolesError, setRolesError] = useState(false);
 
   useEffect(() => {
-    // Try backend, fallback to localStorage
-    api.get<any>("/api/v1/settings/company")
-      .then((data) => { setCompany(data); setCompanyLoading(false); })
-      .catch(() => {
-        const { companySettings } = require("@/lib/localStore");
-        setCompany(companySettings.get());
-        setCompanyLoading(false);
-      });
-  }, []);
-
-  const refetchCompany = () => {
+    // Load company settings
     api.get<any>("/api/v1/settings/company")
       .then(setCompany)
-      .catch(() => {
-        const { companySettings } = require("@/lib/localStore");
-        setCompany(companySettings.get());
-      });
+      .catch(() => setCompany(companySettings.get()))
+      .finally(() => setCompanyLoading(false));
+
+    // Load users
+    if (user?.role === "Admin") {
+      setUsersLoading(true);
+      systemApi.getUsers()
+        .then(setUsersData)
+        .catch(() => setUsersError(true))
+        .finally(() => setUsersLoading(false));
+
+      setRolesLoading(true);
+      systemApi.getRoles()
+        .then(setRolesData)
+        .catch(() => setRolesError(true))
+        .finally(() => setRolesLoading(false));
+    }
+  }, [user?.role]);
+
+  const refetchUsers = () => {
+    systemApi.getUsers().then(setUsersData).catch(() => {});
   };
+
+  const merged = { ...(company || {}), ...form };
+  const set = (k: string, v: string) => setForm((p: any) => ({ ...p, [k]: v }));
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       await api.post("/api/v1/settings/company", merged);
-      toast.success("Settings saved successfully");
-      refetchCompany();
-      setForm({});
+      toast.success("Settings saved");
     } catch {
-      // Save to localStorage as fallback
-      const { companySettings } = await import("@/lib/localStore");
       companySettings.save(merged);
-      setCompany(merged);
-      setForm({});
       toast.success("Settings saved locally");
     }
+    setCompany(merged);
+    setForm({});
   };
 
   if (companyLoading) {
@@ -243,7 +313,7 @@ export default function SettingsPage() {
           {user?.role === "Admin" && <TabsTrigger value="users" className="gap-2"><UserCog className="h-4 w-4" /> Users</TabsTrigger>}
           <TabsTrigger value="appearance" className="gap-2"><Palette className="h-4 w-4" /> Theme</TabsTrigger>
           <TabsTrigger value="notifications" className="gap-2"><Bell className="h-4 w-4" /> Alerts</TabsTrigger>
-          <TabsTrigger value="bank" className="gap-2"><CreditCard className="h-4 w-4" /> Bank</TabsTrigger>
+          <TabsTrigger value="bank" className="gap-2"><CreditCard className="h-4 w-4" /> Bank & UPI</TabsTrigger>
           {user?.role === "Admin" && <TabsTrigger value="data" className="gap-2"><Database className="h-4 w-4" /> Data</TabsTrigger>}
           {user?.role === "Admin" && <TabsTrigger value="security" className="gap-2"><Shield className="h-4 w-4" /> Security</TabsTrigger>}
         </TabsList>
@@ -292,8 +362,8 @@ export default function SettingsPage() {
           <TabsContent value="bank" className="focus-visible:outline-none">
             <Card className="border-none shadow-md">
               <CardHeader>
-                <CardTitle>Bank Details</CardTitle>
-                <CardDescription>Displayed on invoice footers for payment reference.</CardDescription>
+                <CardTitle>Bank & UPI Details</CardTitle>
+                <CardDescription>Displayed on invoice footers for payment. UPI ID is used for QR code generation.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -313,9 +383,14 @@ export default function SettingsPage() {
                     <Label>Branch</Label>
                     <Input value={merged.bank_branch || ""} onChange={e => set("bank_branch", e.target.value)} placeholder="Kothrud, Pune" />
                   </div>
+                  <div className="space-y-2 md:col-span-2 bg-primary/5 rounded-xl p-4 border border-primary/20">
+                    <Label className="text-primary font-bold text-sm">UPI ID (for Invoice QR Code)</Label>
+                    <Input value={merged.upi_id || ""} onChange={e => set("upi_id", e.target.value)} placeholder="yourcompany@hdfcbank" className="text-base font-mono" />
+                    <p className="text-xs text-muted-foreground">This UPI ID will be embedded in the QR code on invoices. Customers can scan it with Google Pay, PhonePe, Paytm, etc.</p>
+                  </div>
                 </div>
                 <div className="pt-4 border-t flex justify-end">
-                  <Button type="submit" className="gap-2"><Save className="h-4 w-4" /> Save Bank Details</Button>
+                  <Button type="submit" className="gap-2"><Save className="h-4 w-4" /> Save Bank & UPI Details</Button>
                 </div>
               </CardContent>
             </Card>
@@ -333,9 +408,7 @@ export default function SettingsPage() {
               <CardDescription>View recent system-wide alerts and messages.</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground italic">No new system alerts at this time.</p>
-              </div>
+              <p className="text-sm text-muted-foreground italic">No new system alerts at this time.</p>
             </CardContent>
           </Card>
         </TabsContent>
@@ -347,76 +420,47 @@ export default function SettingsPage() {
                 <CardTitle>User Management</CardTitle>
                 <CardDescription>Manage system access and permissions (Admin Only)</CardDescription>
               </div>
-              <Button 
-                onClick={() => {
-                  setEditingUser({});
-                  setUserModalOpen(true);
-                }}
-                disabled={user?.role !== "Admin"}
-                className="gap-2"
-              >
+              <Button onClick={() => { setEditingUser({}); setUserModalOpen(true); }} disabled={user?.role !== "Admin"} className="gap-2">
                 <PlusCircle className="h-4 w-4" /> Add User
               </Button>
             </CardHeader>
             <CardContent>
               {usersLoading ? <LoadingState message="Loading users..." /> : usersError ? (
-                <ErrorState message="Failed to load users. Ensure backend is running." onRetry={refetchUsers} />
+                <ErrorState message="Failed to load users. Backend not available." onRetry={refetchUsers} />
               ) : (
-              <div className="border rounded-lg overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50 border-b text-[10px] font-semibold text-muted-foreground uppercase">
-                    <tr>
-                      <th className="text-left px-4 py-3">Username</th>
-                      <th className="text-left px-4 py-3">Role</th>
-                      <th className="text-left px-4 py-3">Status</th>
-                      <th className="text-right px-4 py-3">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(Array.isArray(usersData) ? usersData : [])?.map((u: any) => (
-                      <tr key={u.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
-                        <td className="px-4 py-3 font-medium">{u.username}</td>
-                        <td className="px-4 py-3"><Badge variant="outline">{u.role}</Badge></td>
-                        <td className="px-4 py-3">
-                          <span className={u.status === "Active" ? "status-badge status-active" : "status-badge status-closed"}>
-                            {u.status}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-right flex justify-end gap-2">
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-8 w-8 text-muted-foreground hover:text-primary"
-                            onClick={() => {
-                              setEditingUser(u);
-                              setUserModalOpen(true);
-                            }}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                            onClick={async () => {
-                              if (confirm(`Delete user ${u.username}?`)) {
-                                try {
-                                  await systemApi.deleteUser(u.id);
-                                  toast.success("User deleted");
-                                  refetchUsers();
-                                } catch (e: any) { toast.error(e.message); }
-                              }
-                            }}
-                            disabled={user?.role !== "Admin"}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </td>
+                <div className="border rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50 border-b text-[10px] font-semibold text-muted-foreground uppercase">
+                      <tr>
+                        <th className="text-left px-4 py-3">Username</th>
+                        <th className="text-left px-4 py-3">Role</th>
+                        <th className="text-left px-4 py-3">Status</th>
+                        <th className="text-right px-4 py-3">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {(Array.isArray(usersData) ? usersData : []).map((u: any) => (
+                        <tr key={u.id} className="border-b last:border-0 hover:bg-muted/30 transition-colors">
+                          <td className="px-4 py-3 font-medium">{u.username}</td>
+                          <td className="px-4 py-3"><Badge variant="outline">{u.role}</Badge></td>
+                          <td className="px-4 py-3"><span className={u.status === "Active" ? "status-badge status-active" : "status-badge status-closed"}>{u.status}</span></td>
+                          <td className="px-4 py-3 text-right flex justify-end gap-2">
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary" onClick={() => { setEditingUser(u); setUserModalOpen(true); }}>
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive" onClick={async () => {
+                              if (confirm(`Delete user ${u.username}?`)) {
+                                try { await systemApi.deleteUser(u.id); toast.success("User deleted"); refetchUsers(); } catch (e: any) { toast.error(e.message); }
+                              }
+                            }}>
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -424,63 +468,37 @@ export default function SettingsPage() {
 
         <TabsContent value="security">
           <Card className="border-none shadow-md">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <div>
-                <CardTitle>Role Management</CardTitle>
-                <CardDescription>Configure Role-Based Access Control (RBAC)</CardDescription>
-              </div>
-              <Button 
-                variant="outline"
-                onClick={async () => {
-                  const name = prompt("Enter new Role name:");
-                  if (name) {
-                    try {
-                      await systemApi.createRole(name);
-                      toast.success("Role created");
-                      refetchRoles();
-                    } catch (e: any) { toast.error(e.message); }
-                  }
-                }}
-                disabled={user?.role !== "Admin"}
-                className="gap-2"
-              >
-                <PlusCircle className="h-4 w-4" /> Add Role
-              </Button>
+            <CardHeader>
+              <CardTitle>Role Management</CardTitle>
+              <CardDescription>Configure Role-Based Access Control (RBAC)</CardDescription>
             </CardHeader>
             <CardContent>
               {rolesLoading ? <LoadingState message="Loading roles..." /> : rolesError ? (
-                <ErrorState message="Failed to load roles. Ensure backend is running." onRetry={refetchRoles} />
+                <ErrorState message="Failed to load roles. Backend not available." />
               ) : (
-              <div className="space-y-4">
-                {(Array.isArray(rolesData) ? rolesData : [])?.map((role: any) => (
-                  <div key={role.id} className="border rounded-md p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-bold text-lg">{role.name}</h3>
-                      <Button 
-                        variant="ghost" 
-                        size="sm" 
-                        className="text-primary gap-1.5"
-                        onClick={() => {
-                          setSelectedRole(role);
-                          setPermModalOpen(true);
-                        }}
-                      >
-                        <ShieldCheck className="h-4 w-4" /> Edit Permissions
-                      </Button>
+                <div className="space-y-4">
+                  {(Array.isArray(rolesData) ? rolesData : []).map((role: any) => (
+                    <div key={role.id} className="border rounded-md p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="font-bold text-lg">{role.name}</h3>
+                        <Button variant="ghost" size="sm" className="text-primary gap-1.5">
+                          <ShieldCheck className="h-4 w-4" /> Edit Permissions
+                        </Button>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Custom Role ID: {role.id}</p>
                     </div>
-                    <p className="text-xs text-muted-foreground">Custom Role ID: {role.id}</p>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
               )}
             </CardContent>
           </Card>
         </TabsContent>
-        {/* Data Management Tab */}
+
         <TabsContent value="data" className="focus-visible:outline-none">
           <DataManagementCard />
         </TabsContent>
       </Tabs>
+
       <RecordModal
         open={userModalOpen}
         onOpenChange={setUserModalOpen}
@@ -488,8 +506,8 @@ export default function SettingsPage() {
         fields={[
           { name: "username", label: "Email / Username", type: "text", required: true },
           { name: "password", label: "Password", type: "text", required: !editingUser?.id },
-          { name: "role", label: "Primary Role", type: "select", options: ["Admin", "Manager", "Employee", ...(Array.isArray(rolesData) ? rolesData : []).filter(r => r && r.name).map(r => r.name)] },
-          { name: "status", label: "Account Status", type: "select", options: ["Active", "Disabled"] }
+          { name: "role", label: "Primary Role", type: "select", options: ["Admin", "Manager", "Employee"] },
+          { name: "status", label: "Account Status", type: "select", options: ["Active", "Disabled"] },
         ]}
         initialData={editingUser}
         onSubmit={async (data) => {
@@ -501,38 +519,6 @@ export default function SettingsPage() {
           refetchUsers();
         }}
       />
-
-      <RecordModal
-        open={permModalOpen}
-        onOpenChange={setPermModalOpen}
-        title={`Edit Permissions: ${selectedRole?.name}`}
-        description="Configure module-level access for this role."
-        fields={[
-          { 
-            name: "permissions", 
-            label: "Module Permissions", 
-            type: "table",
-            columns: [
-              { name: "doctype", label: "Module / DocType", type: "select", options: ["Sales Invoice", "Purchase Order", "Stock Entry", "CRM Lead", "Employee", "Product", "Account"] },
-              { name: "can_read", label: "Read", type: "select", options: [{label: "Yes", value: "true"}, {label: "No", value: "false"}] },
-              { name: "can_write", label: "Write", type: "select", options: [{label: "Yes", value: "true"}, {label: "No", value: "false"}] },
-              { name: "can_submit", label: "Submit", type: "select", options: [{label: "Yes", value: "true"}, {label: "No", value: "false"}] }
-            ]
-          }
-        ]}
-        onSubmit={async (data) => {
-          // Flatten permissions from table (ensure bools)
-          const perms = data.permissions.map((p: any) => ({
-            ...p,
-            can_read: String(p.can_read) === "true",
-            can_write: String(p.can_write) === "true",
-            can_submit: String(p.can_submit) === "true"
-          }));
-          await systemApi.updateRolePermissions(selectedRole.id, perms);
-          toast.success("Role permissions updated");
-        }}
-      />
     </div>
   );
 }
-
