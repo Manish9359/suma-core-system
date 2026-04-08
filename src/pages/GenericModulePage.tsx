@@ -94,7 +94,7 @@ export default function GenericModulePage({
                 }
                 if (Array.isArray(targetDocs) && targetDocs.length > 0) {
                   options = targetDocs.map((d) => {
-                    const val = d.id ?? d.sku ?? Object.values(d).find(v => v !== null && typeof v !== 'object') || '';
+                    const val = d.id ?? d.sku ?? (Object.values(d).find(v => v !== null && typeof v !== 'object') || '');
                     return {
                       label: d.company || d.item_name || d.customer_name || d.full_name || d.name || String(val),
                       value: val,
