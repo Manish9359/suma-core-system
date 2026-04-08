@@ -206,6 +206,24 @@ export default function SettingsPage() {
         setCompany(companySettings.get());
       });
   };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await api.post("/api/v1/settings/company", merged);
+      toast.success("Settings saved successfully");
+      refetchCompany();
+      setForm({});
+    } catch {
+      // Save to localStorage as fallback
+      const { companySettings } = await import("@/lib/localStore");
+      companySettings.save(merged);
+      setCompany(merged);
+      setForm({});
+      toast.success("Settings saved locally");
+    }
+  };
+
   if (companyLoading) {
     return <div className="module-page flex items-center justify-center h-[50vh]"><LoadingState message="Initializing settings..." /></div>;
   }
