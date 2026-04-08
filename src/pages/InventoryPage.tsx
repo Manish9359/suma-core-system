@@ -135,6 +135,8 @@ function ProductCatalog() {
   const [stockModalOpen, setStockModalOpen] = useState(false);
   const [stockItem, setStockItem] = useState<LocalProduct | null>(null);
   const [stockQty, setStockQty] = useState("");
+  const [csvImportResult, setCsvImportResult] = useState<{ added: number; errors: string[] } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(() => {
     setProducts(localStore.getProducts());
@@ -198,9 +200,90 @@ function ProductCatalog() {
 
   const warehouseName = (id: string) => warehouses.find((w) => w.id === id)?.name || id;
 
+  /* ── CSV Import ── */
+  const handleCsvImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const lines = text.split(/\r?\n/).filter(Boolean);
+      if (lines.length < 2) { toast.error("CSV must have a header row and at least one data row"); return; }
+
+      const header = lines[0].split(",").map((h) => h.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_"));
+      const nameIdx = header.findIndex((h) => h.includes("name") || h === "product");
+      const skuIdx = header.findIndex((h) => h.includes("sku") || h.includes("code") || h === "item_code");
+      const qtyIdx = header.findIndex((h) => h.includes("qty") || h.includes("quantity") || h.includes("stock"));
+      const costIdx = header.findIndex((h) => h.includes("cost") || h.includes("buy") || h === "cost_price");
+      const sellIdx = header.findIndex((h) => h.includes("sell") || h.includes("price") || h.includes("mrp") || h === "selling_price");
+      const catIdx = header.findIndex((h) => h.includes("category") || h.includes("cat"));
+      const brandIdx = header.findIndex((h) => h.includes("brand"));
+      const hsnIdx = header.findIndex((h) => h.includes("hsn"));
+      const unitIdx = header.findIndex((h) => h.includes("unit") || h.includes("uom"));
+      const reorderIdx = header.findIndex((h) => h.includes("reorder"));
+
+      if (nameIdx === -1) { toast.error("CSV must have a 'name' or 'product' column"); return; }
+
+      let added = 0;
+      const errors: string[] = [];
+
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(",").map((c) => c.trim());
+        const name = cols[nameIdx];
+        if (!name) { errors.push(`Row ${i + 1}: missing product name`); continue; }
+        try {
+          localStore.createProduct({
+            name,
+            sku: skuIdx >= 0 ? cols[skuIdx] : undefined,
+            stock: qtyIdx >= 0 ? Number(cols[qtyIdx]) || 0 : 0,
+            cost: costIdx >= 0 ? Number(cols[costIdx]) || 0 : 0,
+            sell: sellIdx >= 0 ? Number(cols[sellIdx]) || 0 : 0,
+            category: catIdx >= 0 ? cols[catIdx] : "",
+            brand: brandIdx >= 0 ? cols[brandIdx] : "",
+            hsn_code: hsnIdx >= 0 ? cols[hsnIdx] : "",
+            unit: unitIdx >= 0 ? cols[unitIdx] || "Nos" : "Nos",
+            reorder_level: reorderIdx >= 0 ? Number(cols[reorderIdx]) || 10 : 10,
+          });
+          added++;
+        } catch (err: any) {
+          errors.push(`Row ${i + 1}: ${err.message}`);
+        }
+      }
+
+      setCsvImportResult({ added, errors });
+      toast.success(`Imported ${added} products${errors.length ? ` (${errors.length} errors)` : ""}`);
+      reload();
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  /* ── CSV Export ── */
+  const handleCsvExport = () => {
+    const headers = ["name", "sku", "category", "brand", "warehouse", "cost", "sell", "stock", "reorder_level", "hsn_code", "unit"];
+    const rows = products.map((p) => headers.map((h) => String((p as any)[h] ?? "")).join(","));
+    const csv = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "products_export.csv"; a.click();
+    URL.revokeObjectURL(url);
+    toast.success("CSV exported");
+  };
+
+  /* ── Download Template ── */
+  const handleDownloadTemplate = () => {
+    const csv = "name,sku,category,brand,cost,sell,stock,reorder_level,hsn_code,unit\nHikvision 2MP Dome,HIK-2MP-01,CCTV Camera,Hikvision,1500,2500,50,10,85258090,Nos\nCat6 Cable 305m,CAT6-305,Cable,D-Link,3200,4500,20,5,85444999,Box";
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "product_import_template.csv"; a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="p-6 space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-xl font-bold flex items-center gap-3">
             <Package className="h-6 w-6 text-primary" /> Product Catalog
@@ -208,10 +291,47 @@ function ProductCatalog() {
           </h1>
           <p className="text-sm text-muted-foreground">Manage products, stock levels, and pricing</p>
         </div>
-        <Button onClick={() => { setEditingProduct(null); setFormOpen(true); }} className="gap-2 shadow-sm">
-          <PlusCircle className="h-4 w-4" /> New Product
-        </Button>
+        <div className="flex gap-2 flex-wrap">
+          <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleCsvImport} />
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={handleDownloadTemplate}>
+            <FileSpreadsheet className="h-3.5 w-3.5" /> Template
+          </Button>
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => fileInputRef.current?.click()}>
+            <Upload className="h-3.5 w-3.5" /> Import CSV
+          </Button>
+          <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={handleCsvExport} disabled={products.length === 0}>
+            <Download className="h-3.5 w-3.5" /> Export CSV
+          </Button>
+          <Button onClick={() => { setEditingProduct(null); setFormOpen(true); }} className="gap-2 shadow-sm">
+            <PlusCircle className="h-4 w-4" /> New Product
+          </Button>
+        </div>
       </div>
+
+      {/* CSV Import Result */}
+      {csvImportResult && (
+        <Card className="border-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/20 dark:border-emerald-800">
+          <CardContent className="p-4">
+            <div className="flex justify-between items-start">
+              <div>
+                <p className="font-semibold text-sm text-emerald-700 dark:text-emerald-400">
+                  ✅ Imported {csvImportResult.added} products successfully
+                </p>
+                {csvImportResult.errors.length > 0 && (
+                  <div className="mt-2">
+                    <p className="text-xs text-destructive font-medium">{csvImportResult.errors.length} errors:</p>
+                    <ul className="text-xs text-muted-foreground mt-1 space-y-0.5">
+                      {csvImportResult.errors.slice(0, 5).map((e, i) => <li key={i}>• {e}</li>)}
+                      {csvImportResult.errors.length > 5 && <li>...and {csvImportResult.errors.length - 5} more</li>}
+                    </ul>
+                  </div>
+                )}
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setCsvImportResult(null)}>✕</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* KPI Row */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
